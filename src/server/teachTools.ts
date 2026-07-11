@@ -3,6 +3,13 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { Ctx, json, err } from './context.js';
 import { applyEvidence, effectiveLevel } from '../student/model.js';
 import { analogies, nextLessons } from '../queries/queries.js';
+import { slugify } from '../vault/parsePage.js';
+
+function requireSlug(raw: string, field: string): string | { error: string } {
+  const s = slugify(raw);
+  if (!s) return { error: `invalid ${field}: "${raw}" slugifies to empty string` };
+  return s;
+}
 
 export const COMPILE_CONTRACT = `Extract 3-10 atomic concepts from this source. For each concept call write_page:
 kebab-case slug, clear title, a self-contained explanatory body using [[wiki-links]] to other concepts,
@@ -38,9 +45,11 @@ export function registerTeachTools(server: McpServer, ctx: Ctx): void {
   server.registerTool(
     'read_path',
     { description: 'Read one curated path: ordered pages + narrative.', inputSchema: { slug: z.string() } },
-    async ({ slug }) => {
-      const doc = ctx.store.readPathDoc(slug);
-      return doc ? json(doc) : err(`path not found: ${slug}`);
+    async ({ slug: rawSlug }) => {
+      const slugResult = requireSlug(rawSlug, 'slug');
+      if (typeof slugResult !== 'string') return err(slugResult.error);
+      const doc = ctx.store.readPathDoc(slugResult);
+      return doc ? json(doc) : err(`path not found: ${slugResult}`);
     }
   );
 
@@ -52,7 +61,12 @@ export function registerTeachTools(server: McpServer, ctx: Ctx): void {
         slug: z.string(), title: z.string(), pages: z.array(z.string()).min(1), narrative: z.string(),
       },
     },
-    async ({ slug, title, pages: pageSlugs, narrative }) => {
+    async ({ slug: rawSlug, title, pages: rawPageSlugs, narrative }) => {
+      const slugResult = requireSlug(rawSlug, 'slug');
+      if (typeof slugResult !== 'string') return err(slugResult.error);
+      const slug = slugResult;
+      const pageSlugs = rawPageSlugs.map((s) => slugify(s));
+      if (pageSlugs.some((s) => !s)) return err(`invalid pages: one or more slugify to empty string`);
       const { pages } = await ctx.snapshot();
       const missing = pageSlugs.filter((s) => !pages.has(s));
       if (missing.length) return err(`pages not found: ${missing.join(', ')}`);
@@ -63,8 +77,12 @@ export function registerTeachTools(server: McpServer, ctx: Ctx): void {
 
   server.registerTool(
     'get_student_state',
-    { description: "Student's mastery map with decay-adjusted effective levels.", inputSchema: { student: z.string() } },
-    async ({ student }) => {
+    {
+      description:
+        "Student's mastery map with decay-adjusted effective levels. Pass slug for full per-page detail (evidence notes, misconceptions).",
+      inputSchema: { student: z.string(), slug: z.string().optional() },
+    },
+    async ({ student, slug: rawSlug }) => {
       const state = ctx.store.readStudent(student);
       const now = new Date();
       const out: Record<string, unknown> = {};
@@ -77,7 +95,23 @@ export function registerTeachTools(server: McpServer, ctx: Ctx): void {
           evidenceCount: m.evidence.length,
         };
       }
-      return json(out);
+      if (rawSlug === undefined) return json(out);
+      const slugResult = requireSlug(rawSlug, 'slug');
+      if (typeof slugResult !== 'string') return err(slugResult.error);
+      const m = state[slugResult];
+      return json({
+        ...out,
+        detail: m
+          ? {
+              level: m.level,
+              effective: effectiveLevel(m, now),
+              last_reinforced: m.last_reinforced,
+              evidence: m.evidence,
+              misconceptions: m.misconceptions,
+            }
+          : null,
+        ...(m ? {} : { note: `no mastery record for slug: ${slugResult}` }),
+      });
     }
   );
 
@@ -91,7 +125,10 @@ export function registerTeachTools(server: McpServer, ctx: Ctx): void {
         misconception: z.string().optional(),
       },
     },
-    async ({ student, slug, kind, note, misconception }) => {
+    async ({ student, slug: rawSlug, kind, note, misconception }) => {
+      const slugResult = requireSlug(rawSlug, 'slug');
+      if (typeof slugResult !== 'string') return err(slugResult.error);
+      const slug = slugResult;
       const { pages } = await ctx.snapshot();
       if (!pages.has(slug)) return err(`page not found: ${slug}`);
       const now = new Date();
@@ -124,7 +161,10 @@ export function registerTeachTools(server: McpServer, ctx: Ctx): void {
       description: "Bridge a new topic to the student's known pages (cross-domain analogies).",
       inputSchema: { student: z.string(), slug: z.string(), k: z.number().optional() },
     },
-    async ({ student, slug, k }) => {
+    async ({ student, slug: rawSlug, k }) => {
+      const slugResult = requireSlug(rawSlug, 'slug');
+      if (typeof slugResult !== 'string') return err(slugResult.error);
+      const slug = slugResult;
       const snap = await ctx.snapshot();
       if (!snap.pages.has(slug)) return err(`page not found: ${slug}`);
       const out = analogies(

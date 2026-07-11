@@ -61,6 +61,17 @@ describe('teach tools', () => {
     expect((await call('record_evidence', { student: 's', slug: 'nope', kind: 'exposed', note: 'x' })).isError).toBe(true);
   });
 
+  it('get_student_state returns per-page detail with evidence notes when a slug is given', async () => {
+    await call('record_evidence', {
+      student: 'sabien', slug: 'derivatives', kind: 'explained-correctly', note: 'nailed limits framing',
+    });
+    const state = await call('get_student_state', { student: 'sabien', slug: 'derivatives' });
+    expect(state.data.detail.evidence.map((e: any) => e.note)).toContain('nailed limits framing');
+    expect(state.data.detail.level).toBeDefined();
+    const unknown = await call('get_student_state', { student: 'sabien', slug: 'nope' });
+    expect(unknown.data.detail).toBeNull();
+  });
+
   it('next_lessons suggests frontier work for a fresh student', async () => {
     await call('record_evidence', { student: 'sabien', slug: 'derivatives', kind: 'explained-correctly', note: 'a' });
     await call('record_evidence', { student: 'sabien', slug: 'derivatives', kind: 'applied-correctly', note: 'b' });

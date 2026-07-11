@@ -37,7 +37,7 @@ export function applyEvidence(
   };
   const from = effectiveLevel(state[slug], now);
 
-  let level: MasteryLevel = prev.level;
+  let level: MasteryLevel = from;
   if (kind === 'exposed') level = LEVELS[Math.max(idx(from), idx('exposed'))];
   else if (kind === 'explained-correctly' || kind === 'applied-correctly')
     level = LEVELS[Math.min(idx(from) + 1, idx('mastered'))];

@@ -3,7 +3,14 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { Ctx, json, err } from './context.js';
 import { proposeLinks, VERIFY_CONTRACT } from '../linking/propose.js';
 import { wouldCreateCycle, graphWarnings } from '../graph/graph.js';
+import { slugify } from '../vault/parsePage.js';
 import type { LinkType, PageMeta } from '../types.js';
+
+function requireSlug(raw: string, field: string): string | { error: string } {
+  const s = slugify(raw);
+  if (!s) return { error: `invalid ${field}: "${raw}" slugifies to empty string` };
+  return s;
+}
 
 const LINK_TYPES = ['prereq', 'deepens', 'related'] as const;
 
@@ -29,9 +36,9 @@ export function registerGraphTools(server: McpServer, ctx: Ctx): void {
         }
         if (s > 0) scores.set(p.slug, s);
       }
-      if (index) {
-        // seed semantic scores from lexical hits (or all pages if none)
-        const seeds = scores.size ? [...scores.keys()] : [...pages.keys()].slice(0, 1);
+      if (index && scores.size) {
+        // augment/rank lexical hits with semantic neighbors; no lexical hits -> no seed, no noise
+        const seeds = [...scores.keys()];
         for (const { slug, score } of index.similarToMany(seeds, 8)) {
           scores.set(slug, (scores.get(slug) ?? 0) + score);
         }
@@ -53,7 +60,10 @@ export function registerGraphTools(server: McpServer, ctx: Ctx): void {
       description: 'Read a page: content, metadata, and typed in/out edges with rationales.',
       inputSchema: { slug: z.string() },
     },
-    async ({ slug }) => {
+    async ({ slug: rawSlug }) => {
+      const slugResult = requireSlug(rawSlug, 'slug');
+      if (typeof slugResult !== 'string') return err(slugResult.error);
+      const slug = slugResult;
       const { pages, edges } = await ctx.snapshot();
       const page = pages.get(slug);
       if (!page) return err(`page not found: ${slug}`);
@@ -87,12 +97,28 @@ export function registerGraphTools(server: McpServer, ctx: Ctx): void {
         sources: z.array(z.string()).optional(),
       },
     },
-    async (args) => {
-      const { pages } = await ctx.snapshot();
+    async (rawArgs) => {
+      const slugResult = requireSlug(rawArgs.slug, 'slug');
+      if (typeof slugResult !== 'string') return err(slugResult.error);
+      const args = {
+        ...rawArgs,
+        slug: slugResult,
+        domain: rawArgs.domain !== undefined ? slugify(rawArgs.domain) : undefined,
+      };
+      const { pages, edges } = await ctx.snapshot();
       const old = pages.get(args.slug);
+      const incomingPrereqs = args.prereqs ?? old?.meta.prereqs ?? [];
+      const cycleWarnings: string[] = [];
+      const prereqs = incomingPrereqs.filter((p) => {
+        if (wouldCreateCycle(edges, args.slug, p)) {
+          cycleWarnings.push(`prereq edge ${args.slug} -> ${p} rejected: would create a cycle`);
+          return false;
+        }
+        return true;
+      });
       const meta: PageMeta = {
         title: args.title,
-        prereqs: args.prereqs ?? old?.meta.prereqs ?? [],
+        prereqs,
         deepens: args.deepens ?? old?.meta.deepens ?? [],
         tags: args.tags ?? old?.meta.tags ?? [],
         difficulty: args.difficulty ?? old?.meta.difficulty ?? 3,
@@ -106,7 +132,7 @@ export function registerGraphTools(server: McpServer, ctx: Ctx): void {
         page: { slug: page.slug, domain: page.domain, meta: page.meta, warnings: page.warnings },
         proposedLinks: proposeLinks(page, snap.pages, snap.edges, snap.index),
         instructions: VERIFY_CONTRACT,
-        graphWarnings: graphWarnings(snap.pages, snap.edges).slice(0, 10),
+        graphWarnings: [...cycleWarnings, ...graphWarnings(snap.pages, snap.edges)].slice(0, 10),
       });
     }
   );
@@ -123,7 +149,13 @@ export function registerGraphTools(server: McpServer, ctx: Ctx): void {
         rationale: z.string().min(10),
       },
     },
-    async ({ src, dst, type, rationale }) => {
+    async ({ src: rawSrc, dst: rawDst, type, rationale }) => {
+      const srcResult = requireSlug(rawSrc, 'src');
+      if (typeof srcResult !== 'string') return err(srcResult.error);
+      const dstResult = requireSlug(rawDst, 'dst');
+      if (typeof dstResult !== 'string') return err(dstResult.error);
+      const src = srcResult;
+      const dst = dstResult;
       const { pages, edges } = await ctx.snapshot();
       const srcPage = pages.get(src);
       if (!srcPage) return err(`page not found: ${src}`);
@@ -161,8 +193,14 @@ export function registerGraphTools(server: McpServer, ctx: Ctx): void {
       description: 'Remove a prereq/deepens edge. Related links live in prose; edit via write_page.',
       inputSchema: { src: z.string(), dst: z.string(), type: z.enum(LINK_TYPES) },
     },
-    async ({ src, dst, type }) => {
+    async ({ src: rawSrc, dst: rawDst, type }) => {
       if (type === 'related') return err('related links live in prose — edit the body via write_page');
+      const srcResult = requireSlug(rawSrc, 'src');
+      if (typeof srcResult !== 'string') return err(srcResult.error);
+      const dstResult = requireSlug(rawDst, 'dst');
+      if (typeof dstResult !== 'string') return err(dstResult.error);
+      const src = srcResult;
+      const dst = dstResult;
       const { pages } = await ctx.snapshot();
       const page = pages.get(src);
       if (!page) return err(`page not found: ${src}`);

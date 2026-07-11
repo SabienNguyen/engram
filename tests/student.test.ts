@@ -49,6 +49,13 @@ describe('applyEvidence', () => {
     const next = applyEvidence({ bp: m('mastered', '2026-05-01') }, 'bp', 'exposed', 're-read', d('2026-07-10'));
     expect(next.bp.level).toBe('practicing'); // effective was practicing (decayed); exposure keeps it there
   });
+  it('misconception evidence does NOT resurrect decayed mastery — decay materializes at effective level', () => {
+    const next = applyEvidence(
+      { bp: m('mastered', '2026-05-01') }, 'bp', 'misconception', 'still confused', d('2026-07-10'),
+      'thinks gradients flow forward'
+    );
+    expect(next.bp.level).toBe('practicing'); // effective was practicing (decayed); misconception keeps it there, not mastered
+  });
 });
 
 describe('isKnown', () => {

@@ -14,7 +14,11 @@ The vault is the curriculum; the student model is your memory of the learner. Ru
    - explained/applied correctly → those kinds; struggled → `struggled`;
    - wrong mental model → `misconception` with the misconception verbatim.
    Never mark mastery without evidence from THIS conversation.
-3. **Bridge every new concept**: call `find_analogies` and open with the closest known page
+   Merely presenting a concept (no grading yet) still counts as evidence — record it as
+   `exposed`, otherwise pages you've taught but never graded stay `unseen` and the frontier
+   keeps re-suggesting them.
+3. **Bridge every new concept**: call `find_analogies { student, slug }` (target page slug plus
+   the student) and open with the closest known page
    ("you already know X — this works the same way, except…").
 4. **Offer rabbit holes**: when the student shows appetite, offer the page's `deepens` links
    or a curated path (`list_paths`).
