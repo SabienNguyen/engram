@@ -15,6 +15,28 @@ function strArray(v: unknown, field: string, warnings: string[]): string[] {
   return [];
 }
 
+// Best-effort strip of a frontmatter block when the YAML itself failed to
+// parse. We only look for the literal `---` delimiters; if there's no
+// closing delimiter we can't tell where the body starts, so return raw as-is.
+function stripFrontmatterBestEffort(raw: string): string {
+  if (!raw.startsWith('---\n') && !raw.startsWith('---\r\n')) return raw;
+  const lines = raw.split(/\r\n|\n/);
+  for (let i = 1; i < lines.length; i++) {
+    if (lines[i] === '---') {
+      return lines.slice(i + 1).join('\n');
+    }
+  }
+  return raw;
+}
+
+// sources are file paths, not slugs — do not slugify them.
+function sourcesArray(v: unknown, warnings: string[]): string[] {
+  if (v === undefined || v === null) return [];
+  if (Array.isArray(v)) return v.map(String);
+  warnings.push('invalid sources: expected string array');
+  return [];
+}
+
 export function parsePage(slug: string, domain: string, raw: string): Page {
   const warnings: string[] = [];
   let data: Record<string, unknown> = {};
@@ -25,6 +47,7 @@ export function parsePage(slug: string, domain: string, raw: string): Page {
     body = parsed.content;
   } catch (e) {
     warnings.push(`frontmatter parse error: ${(e as Error).message}`);
+    body = stripFrontmatterBestEffort(raw);
   }
 
   const difficulty =
@@ -48,7 +71,7 @@ export function parsePage(slug: string, domain: string, raw: string): Page {
     tags: strArray(data.tags, 'tags', warnings),
     difficulty,
     status,
-    sources: Array.isArray(data.sources) ? data.sources.map(String) : [],
+    sources: sourcesArray(data.sources, warnings),
   };
   if (warnings.length > 0 && meta.status === 'solid') meta.status = 'draft';
 

@@ -34,6 +34,26 @@ describe('parsePage', () => {
     expect(p.body).toContain('body');
   });
 
+  it('strips frontmatter from body even when YAML is syntactically broken', () => {
+    const p = parsePage('broken', '', '---\nprereqs: [unterminated\n---\nreal body here');
+    expect(p.warnings.some((w) => w.includes('frontmatter parse error'))).toBe(true);
+    expect(p.meta.status).toBe('draft');
+    expect(p.body).toContain('real body here');
+    expect(p.body).not.toContain('unterminated');
+    expect(p.body).not.toContain('---');
+  });
+
+  it('warns and drops sources when malformed, downgrading status', () => {
+    const p = parsePage(
+      'bad-sources',
+      '',
+      '---\ntitle: X\nstatus: solid\nsources: 42\n---\nbody',
+    );
+    expect(p.meta.sources).toEqual([]);
+    expect(p.warnings.some((w) => w.includes('sources'))).toBe(true);
+    expect(p.meta.status).toBe('draft');
+  });
+
   it('defaults missing fields', () => {
     const p = parsePage('plain', '', 'no frontmatter at all');
     expect(p.meta.title).toBe('plain');
