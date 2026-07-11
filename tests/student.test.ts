@@ -27,6 +27,7 @@ describe('applyEvidence', () => {
     expect(next.bp.last_reinforced).toBe('2026-07-10');
     expect(next.bp.evidence).toHaveLength(1);
     expect(state.bp.evidence).toHaveLength(0); // no mutation
+    expect(next.bp.misconceptions).not.toBe(state.bp.misconceptions); // not shared by reference
   });
   it('creates entries for new pages and floors struggled at exposed', () => {
     const next = applyEvidence({}, 'bp', 'struggled', 'lost', d('2026-07-10'));
@@ -43,6 +44,10 @@ describe('applyEvidence', () => {
   it('exposed never downgrades', () => {
     const next = applyEvidence({ bp: m('mastered', '2026-07-01') }, 'bp', 'exposed', 're-read', d('2026-07-10'));
     expect(next.bp.level).toBe('mastered');
+  });
+  it('exposure does NOT resurrect decayed mastery — decay materializes at effective level', () => {
+    const next = applyEvidence({ bp: m('mastered', '2026-05-01') }, 'bp', 'exposed', 're-read', d('2026-07-10'));
+    expect(next.bp.level).toBe('practicing'); // effective was practicing (decayed); exposure keeps it there
   });
 });
 

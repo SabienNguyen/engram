@@ -43,14 +43,13 @@ export function applyEvidence(
     level = LEVELS[Math.min(idx(from) + 1, idx('mastered'))];
   else if (kind === 'struggled') level = LEVELS[Math.max(idx(from) - 1, idx('exposed'))];
   // 'misconception': level unchanged
-  if (kind === 'exposed') level = LEVELS[Math.max(idx(level), idx(prev.level))]; // never downgrade on exposure
 
   return {
     ...state,
     [slug]: {
       level,
       evidence: [...prev.evidence, { date: today, kind, note }],
-      misconceptions: misconception ? [...prev.misconceptions, misconception] : prev.misconceptions,
+      misconceptions: misconception ? [...prev.misconceptions, misconception] : [...prev.misconceptions],
       last_reinforced: today,
     },
   };
