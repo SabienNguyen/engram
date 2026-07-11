@@ -114,7 +114,7 @@ export function registerTeachTools(server: McpServer, ctx: Ctx): void {
       const out = nextLessons(
         ctx.store.readStudent(student), snap.pages, snap.index, new Date(), goal, k ?? 3
       );
-      return json(snap.embeddingsError ? { lessons: out, note: snap.embeddingsError } : out);
+      return json(snap.embeddingsError ? { lessons: out, note: snap.embeddingsError } : { lessons: out });
     }
   );
 

@@ -66,7 +66,8 @@ describe('teach tools', () => {
     await call('record_evidence', { student: 'sabien', slug: 'derivatives', kind: 'applied-correctly', note: 'b' });
     // derivatives now practicing => chain-rule unlocked
     const { data } = await call('next_lessons', { student: 'sabien' });
-    expect(data.map((s: any) => s.slug)).toContain('chain-rule');
+    expect(data.lessons.map((s: any) => s.slug)).toContain('chain-rule');
+    expect(data.note).toBeUndefined();
   });
 
   it('find_analogies returns known neighbors', async () => {
