@@ -65,4 +65,20 @@ describe('VaultStore', () => {
     expect(store.listPathDocs()).toEqual([{ slug: 'calc-basics', title: 'Calculus Basics', pages: ['chain-rule'] }]);
     expect(store.readPathDoc('calc-basics')?.body).toContain('Start here.');
   });
+
+  it('fails loud with a clear error on corrupt student JSON', () => {
+    mkdirSync(join(root, 'students'), { recursive: true });
+    writeFileSync(join(root, 'students', 'bad.json'), '{not json');
+    expect(() => store.readStudent('bad')).toThrow(/student file corrupt/);
+  });
+
+  it('self-heals corrupt rationales cache', () => {
+    mkdirSync(join(root, '.index'), { recursive: true });
+    writeFileSync(join(root, '.index', 'rationales.json'), '{not json');
+    expect(store.readRationales()).toEqual({});
+  });
+
+  it('readRaw throws a clear error for missing files', () => {
+    expect(() => store.readRaw('ghost.md')).toThrow(/raw file not found/);
+  });
 });

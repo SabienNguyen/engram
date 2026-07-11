@@ -65,7 +65,13 @@ export class VaultStore {
 
   readStudent(name: string): StudentState {
     const f = join(this.root, 'students', `${name}.json`);
-    return existsSync(f) ? (JSON.parse(readFileSync(f, 'utf8')) as StudentState) : {};
+    if (!existsSync(f)) return {};
+    try {
+      return JSON.parse(readFileSync(f, 'utf8')) as StudentState;
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      throw new Error(`student file corrupt: students/${name}.json — ${msg}`);
+    }
   }
 
   writeStudent(name: string, s: StudentState): void {
@@ -81,7 +87,12 @@ export class VaultStore {
 
   readRationales(): Record<string, string> {
     const f = join(this.root, '.index', 'rationales.json');
-    return existsSync(f) ? (JSON.parse(readFileSync(f, 'utf8')) as Record<string, string>) : {};
+    if (!existsSync(f)) return {};
+    try {
+      return JSON.parse(readFileSync(f, 'utf8')) as Record<string, string>;
+    } catch {
+      return {};
+    }
   }
 
   saveRationale(key: string, rationale: string): void {
@@ -96,7 +107,9 @@ export class VaultStore {
   }
 
   readRaw(name: string): string {
-    return readFileSync(join(this.root, 'raw', name), 'utf8');
+    const f = join(this.root, 'raw', name);
+    if (!existsSync(f)) throw new Error(`raw file not found: ${name}`);
+    return readFileSync(f, 'utf8');
   }
 
   listPathDocs(): { slug: string; title: string; pages: string[] }[] {
