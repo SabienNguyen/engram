@@ -1,0 +1,136 @@
+import { z } from 'zod';
+import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { Ctx, json, err } from './context.js';
+import { applyEvidence, effectiveLevel } from '../student/model.js';
+import { analogies, nextLessons } from '../queries/queries.js';
+
+export const COMPILE_CONTRACT = `Extract 3-10 atomic concepts from this source. For each concept call write_page:
+kebab-case slug, clear title, a self-contained explanatory body using [[wiki-links]] to other concepts,
+difficulty 1-5, status "draft", sources ["raw/<file>"]. Prefer linking to existingPages over creating
+near-duplicates. Then verify each returned proposedLinks candidate per its instructions.`;
+
+const KINDS = ['exposed', 'explained-correctly', 'applied-correctly', 'struggled', 'misconception'] as const;
+
+export function registerTeachTools(server: McpServer, ctx: Ctx): void {
+  server.registerTool(
+    'compile_source',
+    {
+      description: 'Fetch a raw source plus compile instructions. You do the extraction via write_page calls.',
+      inputSchema: { file: z.string() },
+    },
+    async ({ file }) => {
+      if (!ctx.store.listRaw().includes(file)) return err(`raw file not found: ${file}`);
+      const { pages } = await ctx.snapshot();
+      return json({
+        source: ctx.store.readRaw(file),
+        existingPages: [...pages.values()].map((p) => ({ slug: p.slug, title: p.meta.title })),
+        instructions: COMPILE_CONTRACT.replace('<file>', file),
+      });
+    }
+  );
+
+  server.registerTool(
+    'list_paths',
+    { description: 'List curated learning paths (rabbit holes).', inputSchema: {} },
+    async () => json(ctx.store.listPathDocs())
+  );
+
+  server.registerTool(
+    'read_path',
+    { description: 'Read one curated path: ordered pages + narrative.', inputSchema: { slug: z.string() } },
+    async ({ slug }) => {
+      const doc = ctx.store.readPathDoc(slug);
+      return doc ? json(doc) : err(`path not found: ${slug}`);
+    }
+  );
+
+  server.registerTool(
+    'create_path',
+    {
+      description: 'Create a curated learning path from existing pages, in teaching order, with narrative.',
+      inputSchema: {
+        slug: z.string(), title: z.string(), pages: z.array(z.string()).min(1), narrative: z.string(),
+      },
+    },
+    async ({ slug, title, pages: pageSlugs, narrative }) => {
+      const { pages } = await ctx.snapshot();
+      const missing = pageSlugs.filter((s) => !pages.has(s));
+      if (missing.length) return err(`pages not found: ${missing.join(', ')}`);
+      ctx.store.writePathDoc(slug, title, pageSlugs, narrative);
+      return json({ created: slug });
+    }
+  );
+
+  server.registerTool(
+    'get_student_state',
+    { description: "Student's mastery map with decay-adjusted effective levels.", inputSchema: { student: z.string() } },
+    async ({ student }) => {
+      const state = ctx.store.readStudent(student);
+      const now = new Date();
+      const out: Record<string, unknown> = {};
+      for (const [slug, m] of Object.entries(state)) {
+        out[slug] = {
+          level: m.level,
+          effective: effectiveLevel(m, now),
+          last_reinforced: m.last_reinforced,
+          misconceptions: m.misconceptions,
+          evidenceCount: m.evidence.length,
+        };
+      }
+      return json(out);
+    }
+  );
+
+  server.registerTool(
+    'record_evidence',
+    {
+      description:
+        'Record graded evidence about a student on a page. Mastery only changes through this tool.',
+      inputSchema: {
+        student: z.string(), slug: z.string(), kind: z.enum(KINDS), note: z.string(),
+        misconception: z.string().optional(),
+      },
+    },
+    async ({ student, slug, kind, note, misconception }) => {
+      const { pages } = await ctx.snapshot();
+      if (!pages.has(slug)) return err(`page not found: ${slug}`);
+      const now = new Date();
+      const next = applyEvidence(ctx.store.readStudent(student), slug, kind, note, now, misconception);
+      ctx.store.writeStudent(student, next);
+      return json({ slug, level: next[slug].level, effective: effectiveLevel(next[slug], now) });
+    }
+  );
+
+  server.registerTool(
+    'next_lessons',
+    {
+      description:
+        'Ranked next topics with reasons (review-due / unmet-prereq / frontier). Call at session start.',
+      inputSchema: { student: z.string(), goal: z.string().optional(), k: z.number().optional() },
+    },
+    async ({ student, goal, k }) => {
+      const snap = await ctx.snapshot();
+      if (goal && !snap.pages.has(goal)) return err(`page not found: ${goal}`);
+      const out = nextLessons(
+        ctx.store.readStudent(student), snap.pages, snap.index, new Date(), goal, k ?? 3
+      );
+      return json(snap.embeddingsError ? { lessons: out, note: snap.embeddingsError } : out);
+    }
+  );
+
+  server.registerTool(
+    'find_analogies',
+    {
+      description: "Bridge a new topic to the student's known pages (cross-domain analogies).",
+      inputSchema: { student: z.string(), slug: z.string(), k: z.number().optional() },
+    },
+    async ({ student, slug, k }) => {
+      const snap = await ctx.snapshot();
+      if (!snap.pages.has(slug)) return err(`page not found: ${slug}`);
+      const out = analogies(
+        slug, ctx.store.readStudent(student), snap.pages, snap.index, new Date(), k ?? 3
+      );
+      return json({ analogies: out, ...(snap.embeddingsError ? { note: snap.embeddingsError } : {}) });
+    }
+  );
+}
