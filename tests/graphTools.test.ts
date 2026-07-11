@@ -85,4 +85,27 @@ describe('graph tools', () => {
     const rel = await call('unlink_pages', { src: 'backprop', dst: 'x', type: 'related' });
     expect(rel.isError).toBe(true);
   });
+
+  it('link_pages leaves the vault unchanged when a cycle is rejected', async () => {
+    const before = await call('read_page', { slug: 'chain-rule' });
+    const cyc = await call('link_pages', {
+      src: 'chain-rule', dst: 'backprop', type: 'prereq', rationale: 'circular dependency attempt',
+    });
+    expect(cyc.isError).toBe(true);
+    expect(cyc.text).toContain('cycle');
+    const after = await call('read_page', { slug: 'chain-rule' });
+    expect(after.data.edges.out).toEqual(before.data.edges.out);
+  });
+
+  it('link_pages related links are idempotent on retry', async () => {
+    await call('link_pages', {
+      src: 'backprop', dst: 'chain-rule', type: 'related', rationale: 'lateral framing of composition reuse',
+    });
+    await call('link_pages', {
+      src: 'backprop', dst: 'chain-rule', type: 'related', rationale: 'lateral framing of composition reuse',
+    });
+    const page = await call('read_page', { slug: 'backprop' });
+    const occurrences = (page.data.page.body.match(/\[\[chain-rule\]\]/g) ?? []).length;
+    expect(occurrences).toBe(1);
+  });
 });

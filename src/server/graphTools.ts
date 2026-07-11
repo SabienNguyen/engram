@@ -127,20 +127,22 @@ export function registerGraphTools(server: McpServer, ctx: Ctx): void {
       const { pages, edges } = await ctx.snapshot();
       const srcPage = pages.get(src);
       if (!srcPage) return err(`page not found: ${src}`);
+      if (type === 'prereq' && wouldCreateCycle(edges, src, dst)) {
+        return err(`rejected: would create prereq cycle ${src} -> ${dst}`);
+      }
       let stubCreated = false;
       if (!pages.has(dst)) {
         ctx.store.createStub(dst);
         stubCreated = true;
       }
-      if (type === 'prereq' && wouldCreateCycle(edges, src, dst)) {
-        return err(`rejected: would create prereq cycle ${src} -> ${dst}`);
-      }
       if (type === 'related') {
-        const line = `- [[${dst}]] — ${rationale}`;
-        const body = srcPage.body.includes('## Links')
-          ? srcPage.body.replace('## Links', `## Links\n${line}`)
-          : `${srcPage.body.trimEnd()}\n\n## Links\n${line}\n`;
-        ctx.store.writePage(src, srcPage.meta, body, srcPage.domain);
+        if (!srcPage.inlineLinks.includes(dst)) {
+          const line = `- [[${dst}]] — ${rationale}`;
+          const body = srcPage.body.includes('## Links')
+            ? srcPage.body.replace('## Links', `## Links\n${line}`)
+            : `${srcPage.body.trimEnd()}\n\n## Links\n${line}\n`;
+          ctx.store.writePage(src, srcPage.meta, body, srcPage.domain);
+        }
       } else {
         const list = type === 'prereq' ? srcPage.meta.prereqs : srcPage.meta.deepens;
         if (!list.includes(dst)) list.push(dst);
