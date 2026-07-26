@@ -39,9 +39,40 @@ export function applyEvidence(
 
   let level: MasteryLevel = from;
   if (kind === 'exposed') level = LEVELS[Math.max(idx(from), idx('exposed'))];
-  else if (kind === 'explained-correctly' || kind === 'applied-correctly')
-    level = LEVELS[Math.min(idx(from) + 1, idx('mastered'))];
-  else if (kind === 'struggled') level = LEVELS[Math.max(idx(from) - 1, idx('exposed'))];
+  else if (kind === 'explained-correctly' || kind === 'applied-correctly') {
+    // Both step exactly one rung — anti-inflation, unchanged.
+    //
+    // The CEILING is the new part: explaining alone stops at 'practicing'. 'mastered' is the only
+    // claim this model makes that a learner would quote to someone else, and it should mean a
+    // machine confirmed the work, not that a model was satisfied by a description of it. The
+    // harness enforces the other half of the same rule (src/server/grading.ts's capApplied: only
+    // mechanically-verified grading may emit 'applied-correctly' at all), so the two together mean
+    // 'mastered' is reachable only through a real test suite, numeric equivalence, or an exact
+    // expected value.
+    //
+    // Deliberately NOT a change to progression. isKnown() is true at 'practicing', so prereq
+    // gating, frontier selection, nextLessons and path progress all behave exactly as before — a
+    // learner can still work through an entire syllabus on explanation alone. What changes is that
+    // the top of the scale is no longer available for it.
+    //
+    // The visible consequence, which is the point: 'practicing' decays after
+    // DECAY.practicingDays (21) rather than DECAY.masteredDays (45), so a page held up by
+    // explanation alone returns to the review queue about twice as often as one backed by an
+    // exercise. That is the signal — you can describe this, you have never done it — and it costs
+    // no new machinery.
+    //
+    // Known limitation, accepted rather than hidden: subjects with no applied block available
+    // (nothing mechanical can currently check history, law, or literature) can never reach
+    // 'mastered'. The honest fix is to say so in the UI, not to quietly exempt them — a per-subject
+    // exemption registry would be the same hand-authoring bottleneck it is meant to relieve.
+    // The ceiling caps the BUMP; it must never pull anyone down. Without the outer max(), a learner
+    // who reached 'mastered' by doing the work and then explained it was demoted to 'practicing' —
+    // punished for having talked about something they had already proved. (Caught by the
+    // "does not push anyone DOWN" case in tests/student.test.ts, which failed against the obvious
+    // one-line version of this.)
+    const ceiling = kind === 'applied-correctly' ? idx('mastered') : idx('practicing');
+    level = LEVELS[Math.max(idx(from), Math.min(idx(from) + 1, ceiling))];
+  } else if (kind === 'struggled') level = LEVELS[Math.max(idx(from) - 1, idx('exposed'))];
   // 'misconception': level unchanged
 
   return {
