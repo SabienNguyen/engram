@@ -197,3 +197,39 @@ describe('decayDaysLeft', () => {
     expect(decayDaysLeft({ level: 'exposed', last_reinforced: day(100), misconceptions: [], evidence: [] } as any, now)).toBeNull();
   });
 });
+
+describe('misconception resolution', () => {
+  const now = new Date();
+  const withMisconceptions = (list: string[]): StudentState => ({
+    'the-page': {
+      level: 'practicing',
+      evidence: [{ date: '2026-07-01', kind: 'applied-correctly', note: 'x' }],
+      misconceptions: list,
+      last_reinforced: now.toISOString().slice(0, 10),
+    },
+  });
+
+  it('resolves removes the matched misconception, substring and case tolerant', () => {
+    const state = withMisconceptions(['Thinks C1V1=C2V2 applies when mixing two stocks', 'confuses molarity with molality']);
+    const next = applyEvidence(state, 'the-page', 'applied-correctly', 'redid it right', now, undefined, 'c1v1=c2v2 applies when mixing');
+    expect(next['the-page'].misconceptions).toEqual(['confuses molarity with molality']);
+  });
+
+  it('resolving one of two similar misconceptions removes only the first match', () => {
+    const state = withMisconceptions(['confuses A with B', 'confuses A with B in edge cases']);
+    const next = applyEvidence(state, 'the-page', 'explained-correctly', 'clear now', now, undefined, 'confuses A with B');
+    expect(next['the-page'].misconceptions).toHaveLength(1);
+  });
+
+  it('an unmatched resolves leaves the list intact — no silent false repair', () => {
+    const state = withMisconceptions(['confuses A with B']);
+    const next = applyEvidence(state, 'the-page', 'applied-correctly', 'good', now, undefined, 'something else entirely');
+    expect(next['the-page'].misconceptions).toEqual(['confuses A with B']);
+  });
+
+  it('resolve and record in one call: the old one goes, the new one arrives', () => {
+    const state = withMisconceptions(['old confusion']);
+    const next = applyEvidence(state, 'the-page', 'struggled', 'new trouble', now, 'new confusion', 'old confusion');
+    expect(next['the-page'].misconceptions).toEqual(['new confusion']);
+  });
+});

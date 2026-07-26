@@ -66,12 +66,25 @@ export function applyEvidence(
   kind: EvidenceKind,
   note: string,
   now: Date,
-  misconception?: string
+  misconception?: string,
+  resolves?: string
 ): StudentState {
   const today = now.toISOString().slice(0, 10);
   const prev: PageMastery = state[slug] ?? {
     level: 'unseen', evidence: [], misconceptions: [], last_reinforced: today,
   };
+  // Resolving a misconception: the learner DEMONSTRATED the confusion no longer holds, and the
+  // tutor names which one. Matched by substring (case-insensitive) because the tutor is quoting a
+  // note it may not have verbatim; removing only the first match keeps a second, similar
+  // misconception alive rather than clearing both on one demonstration. Without this, a recorded
+  // misconception outlives its own repair and returns in every future session plan.
+  let misconceptions = [...prev.misconceptions];
+  if (resolves) {
+    const needle = resolves.trim().toLowerCase();
+    const i = misconceptions.findIndex((m) => m.toLowerCase().includes(needle) || needle.includes(m.toLowerCase()));
+    if (i >= 0) misconceptions.splice(i, 1);
+  }
+  if (misconception) misconceptions = [...misconceptions, misconception];
   const from = effectiveLevel(state[slug], now);
 
   let level: MasteryLevel = from;
@@ -120,7 +133,7 @@ export function applyEvidence(
     [slug]: {
       level,
       evidence: [...prev.evidence, { date: today, kind, note }],
-      misconceptions: misconception ? [...prev.misconceptions, misconception] : [...prev.misconceptions],
+      misconceptions,
       last_reinforced: today,
     },
   };

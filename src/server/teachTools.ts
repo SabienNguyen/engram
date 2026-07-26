@@ -126,22 +126,30 @@ export function registerTeachTools(server: McpServer, ctx: Ctx): void {
     'record_evidence',
     {
       description:
-        'Record graded evidence about a student on a page. Mastery only changes through this tool.',
+        'Record graded evidence about a student on a page. Mastery only changes through this tool. '
+        + 'When the student demonstrably corrects a previously recorded misconception, pass '
+        + '`resolves` quoting it — otherwise it stays active and keeps returning in review plans.',
       inputSchema: {
         student: z.string(), slug: z.string(), kind: z.enum(KINDS), note: z.string(),
         misconception: z.string().optional(),
+        resolves: z.string().optional(),
       },
     },
-    async ({ student, slug: rawSlug, kind, note, misconception }) => {
+    async ({ student, slug: rawSlug, kind, note, misconception, resolves }) => {
       const slugResult = requireSlug(rawSlug, 'slug');
       if (typeof slugResult !== 'string') return err(slugResult.error);
       const slug = slugResult;
       const { pages } = await ctx.snapshot();
       if (!pages.has(slug)) return err(`page not found: ${slug}`);
       const now = new Date();
-      const next = applyEvidence(ctx.store.readStudent(student), slug, kind, note, now, misconception);
+      const next = applyEvidence(ctx.store.readStudent(student), slug, kind, note, now, misconception, resolves);
       ctx.store.writeStudent(student, next);
-      return json({ slug, level: next[slug].level, effective: effectiveLevel(next[slug], now) });
+      return json({
+        slug,
+        level: next[slug].level,
+        effective: effectiveLevel(next[slug], now),
+        misconceptions: next[slug].misconceptions,
+      });
     }
   );
 
