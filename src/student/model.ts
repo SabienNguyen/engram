@@ -40,6 +40,26 @@ export function isKnown(level: MasteryLevel): boolean {
   return level === 'practicing' || level === 'mastered';
 }
 
+/**
+ * Days until this page's standing decays a rung, using the SAME windows and the SAME rubric walk
+ * effectiveLevel applies — the memory layer reporting its own expiry, so no consumer re-derives
+ * the window and silently promises 21 days to a page that rots in 14.
+ *
+ * null when nothing is decaying: unseen/exposed pages have no standing to lose, and a page that
+ * has ALREADY slipped (level > effective) has no countdown left — `slipped` is the caller's
+ * signal there, computable from the two levels it already has.
+ */
+export function decayDaysLeft(m: PageMastery | undefined, now: Date): number | null {
+  if (!m) return null;
+  const staleDays = (now.getTime() - new Date(m.last_reinforced + 'T00:00:00Z').getTime()) / DAY_MS;
+  const window = m.level === 'mastered' ? DECAY.masteredDays
+    : m.level === 'practicing' ? (restsOnRubric(m) ? DECAY.rubricDays : DECAY.practicingDays)
+      : null;
+  if (window === null) return null;
+  const left = Math.ceil(window - staleDays);
+  return left > 0 ? left : null;
+}
+
 export function applyEvidence(
   state: StudentState,
   slug: string,

@@ -1,7 +1,8 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { Ctx, json, err } from './context.js';
-import { applyEvidence, effectiveLevel } from '../student/model.js';
+import { applyEvidence, decayDaysLeft, effectiveLevel } from '../student/model.js';
+import { LEVELS } from '../types.js';
 import { analogies, nextLessons } from '../queries/queries.js';
 import { slugify } from '../vault/parsePage.js';
 
@@ -87,12 +88,18 @@ export function registerTeachTools(server: McpServer, ctx: Ctx): void {
       const now = new Date();
       const out: Record<string, unknown> = {};
       for (const [slug, m] of Object.entries(state)) {
+        const effective = effectiveLevel(m, now);
         out[slug] = {
           level: m.level,
-          effective: effectiveLevel(m, now),
+          effective,
           last_reinforced: m.last_reinforced,
           misconceptions: m.misconceptions,
           evidenceCount: m.evidence.length,
+          // The spacing signal, computed where the decay rules live: days until the standing
+          // drops a rung (null when nothing is decaying), and whether it ALREADY has — the two
+          // numbers a review queue needs, so no consumer re-derives the windows.
+          days_left: decayDaysLeft(m, now),
+          slipped: LEVELS.indexOf(effective) < LEVELS.indexOf(m.level),
         };
       }
       if (rawSlug === undefined) return json(out);

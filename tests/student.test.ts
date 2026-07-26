@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { applyEvidence, effectiveLevel, isKnown } from '../src/student/model.js';
+import { applyEvidence, decayDaysLeft, effectiveLevel, isKnown } from '../src/student/model.js';
+import { DECAY } from '../src/types.js';
 import type { PageMastery, StudentState } from '../src/types.js';
 
 const d = (s: string) => new Date(s + 'T00:00:00Z');
@@ -165,5 +166,34 @@ describe('rubric-passed — the third positive kind, never laundered upward', ()
     s = applyEvidence(s, 'p', 'explained-correctly', 'now explained too', day('2026-07-03'));
     // Most recent level-raising evidence is the explanation, so 18 stale days survive.
     expect(effectiveLevel((s as any).p, day('2026-07-21'))).toBe('practicing');
+  });
+});
+
+describe('decayDaysLeft', () => {
+  const day = (offset: number) => new Date(Date.now() - offset * 86_400_000).toISOString().slice(0, 10);
+  const now = new Date();
+  const mastery = (level: 'practicing' | 'mastered', daysAgo: number, kinds: string[] = ['applied-correctly']) => ({
+    level,
+    last_reinforced: day(daysAgo),
+    misconceptions: [],
+    evidence: kinds.map((kind) => ({ date: day(daysAgo), kind, note: '' })),
+  } as any);
+
+  it('counts down the mastered window', () => {
+    const left = decayDaysLeft(mastery('mastered', 40), now);
+    expect(left).toBeGreaterThan(0);
+    expect(left).toBeLessThanOrEqual(DECAY.masteredDays - 40 + 1);
+  });
+
+  it('uses the shorter rubric window when the standing rests on a rubric', () => {
+    const rubricHeld = decayDaysLeft(mastery('practicing', 10, ['rubric-passed']), now);
+    const applied = decayDaysLeft(mastery('practicing', 10, ['applied-correctly']), now);
+    expect(rubricHeld).toBeLessThan(applied!);
+  });
+
+  it('null once slipped, null when nothing decays', () => {
+    expect(decayDaysLeft(mastery('practicing', 30), now)).toBeNull(); // past the 21d window
+    expect(decayDaysLeft(undefined, now)).toBeNull();
+    expect(decayDaysLeft({ level: 'exposed', last_reinforced: day(100), misconceptions: [], evidence: [] } as any, now)).toBeNull();
   });
 });
