@@ -16,7 +16,7 @@ kebab-case slug, clear title, a self-contained explanatory body using [[wiki-lin
 difficulty 1-5, status "draft", sources ["raw/<file>"]. Prefer linking to existingPages over creating
 near-duplicates. Then verify each returned proposedLinks candidate per its instructions.`;
 
-const KINDS = ['exposed', 'explained-correctly', 'applied-correctly', 'struggled', 'misconception'] as const;
+const KINDS = ['exposed', 'explained-correctly', 'applied-correctly', 'rubric-passed', 'struggled', 'misconception'] as const;
 
 export function registerTeachTools(server: McpServer, ctx: Ctx): void {
   server.registerTool(

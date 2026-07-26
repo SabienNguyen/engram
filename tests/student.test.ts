@@ -125,3 +125,45 @@ describe('isKnown', () => {
     expect(isKnown('unseen')).toBe(false);
   });
 });
+
+describe('rubric-passed — the third positive kind, never laundered upward', () => {
+  const day = (d: string) => new Date(`${d}T12:00:00Z`);
+
+  it('steps one rung and caps at practicing, like explanation', () => {
+    let s = applyEvidence({}, 'essays', 'rubric-passed', 'thesis rubric', day('2026-07-01'));
+    expect(s.essays.level).toBe('exposed');
+    s = applyEvidence(s, 'essays', 'rubric-passed', 'again', day('2026-07-02'));
+    expect(s.essays.level).toBe('practicing');
+    s = applyEvidence(s, 'essays', 'rubric-passed', 'and again', day('2026-07-03'));
+    // However many rubric passes accumulate, mastered stays a machine's word.
+    expect(s.essays.level).toBe('practicing');
+  });
+
+  it('does not push a mastered learner DOWN — same outer-max property as explaining', () => {
+    let s = {};
+    for (const d of ['01', '02', '03']) s = applyEvidence(s, 'p', 'applied-correctly', 'suite', day(`2026-07-${d}`));
+    expect((s as any).p.level).toBe('mastered');
+    s = applyEvidence(s, 'p', 'rubric-passed', 'rubric later', day('2026-07-04'));
+    expect((s as any).p.level).toBe('mastered');
+  });
+
+  it('decays on its own shorter window when the standing rests on a rubric', () => {
+    let rubricHeld = {};
+    for (const d of ['01', '02']) rubricHeld = applyEvidence(rubricHeld, 'p', 'rubric-passed', 'r', day(`2026-07-${d}`));
+    let explainHeld = {};
+    for (const d of ['01', '02']) explainHeld = applyEvidence(explainHeld, 'p', 'explained-correctly', 'e', day(`2026-07-${d}`));
+    // Both sit at practicing on July 2. Fifteen days later only the rubric-held one has rotted:
+    // 15 > rubricDays (14) but 15 < practicingDays (21).
+    const later = day('2026-07-17');
+    expect(effectiveLevel((rubricHeld as any).p, later)).toBe('exposed');
+    expect(effectiveLevel((explainHeld as any).p, later)).toBe('practicing');
+  });
+
+  it('a later explanation moves the page back onto the ordinary window', () => {
+    let s = {};
+    for (const d of ['01', '02']) s = applyEvidence(s, 'p', 'rubric-passed', 'r', day(`2026-07-${d}`));
+    s = applyEvidence(s, 'p', 'explained-correctly', 'now explained too', day('2026-07-03'));
+    // Most recent level-raising evidence is the explanation, so 18 stale days survive.
+    expect(effectiveLevel((s as any).p, day('2026-07-21'))).toBe('practicing');
+  });
+});

@@ -29,12 +29,20 @@ export interface Edge {
 export type MasteryLevel = 'unseen' | 'exposed' | 'practicing' | 'mastered';
 export const LEVELS: MasteryLevel[] = ['unseen', 'exposed', 'practicing', 'mastered'];
 
-export const DECAY = { masteredDays: 45, practicingDays: 21 };
+// rubricDays is the shortest window of the three on purpose: a rubric verdict is a model applying
+// stated criteria — the least verified of the positive evidence kinds — so standing that rests on
+// one is re-checked soonest.
+export const DECAY = { masteredDays: 45, practicingDays: 21, rubricDays: 14 };
 
 export type EvidenceKind =
   | 'exposed'
   | 'explained-correctly'
   | 'applied-correctly'
+  // A model judged produced WORK against an explicit rubric — history essays, legal analysis,
+  // literature. Deliberately its own kind rather than borrowing 'explained-correctly': subjects
+  // with no mechanical check either get this or stay second-class forever, and keeping it named
+  // means it can never launder itself into the applied evidence that gates 'mastered'.
+  | 'rubric-passed'
   | 'struggled'
   | 'misconception';
 

@@ -6,6 +6,6 @@ describe('core types', () => {
     expect(LEVELS).toEqual(['unseen', 'exposed', 'practicing', 'mastered']);
   });
   it('exposes decay defaults from the spec', () => {
-    expect(DECAY).toEqual({ masteredDays: 45, practicingDays: 21 });
+    expect(DECAY).toEqual({ masteredDays: 45, practicingDays: 21, rubricDays: 14 });
   });
 });

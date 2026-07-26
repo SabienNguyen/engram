@@ -11,11 +11,28 @@ function idx(l: MasteryLevel): number {
   return LEVELS.indexOf(l);
 }
 
+/** Does this page's current standing rest on a rubric verdict? True when the most recent
+ *  level-raising evidence is 'rubric-passed' — i.e. nothing mechanical or explanatory has
+ *  reconfirmed the page since a model's rubric judgment last held it up. */
+function restsOnRubric(m: PageMastery): boolean {
+  for (let i = m.evidence.length - 1; i >= 0; i--) {
+    const k = m.evidence[i].kind;
+    if (k === 'applied-correctly' || k === 'explained-correctly') return false;
+    if (k === 'rubric-passed') return true;
+  }
+  return false;
+}
+
 export function effectiveLevel(m: PageMastery | undefined, now: Date): MasteryLevel {
   if (!m) return 'unseen';
   const staleDays = (now.getTime() - new Date(m.last_reinforced + 'T00:00:00Z').getTime()) / DAY_MS;
   if (m.level === 'mastered' && staleDays > DECAY.masteredDays) return 'practicing';
-  if (m.level === 'practicing' && staleDays > DECAY.practicingDays) return 'exposed';
+  if (m.level === 'practicing') {
+    // Rubric-held standing decays on its own, shorter window — the visible consequence of the
+    // evidence being a model's judgment of criteria rather than a machine's confirmation.
+    const window = restsOnRubric(m) ? DECAY.rubricDays : DECAY.practicingDays;
+    if (staleDays > window) return 'exposed';
+  }
   return m.level;
 }
 
@@ -39,7 +56,7 @@ export function applyEvidence(
 
   let level: MasteryLevel = from;
   if (kind === 'exposed') level = LEVELS[Math.max(idx(from), idx('exposed'))];
-  else if (kind === 'explained-correctly' || kind === 'applied-correctly') {
+  else if (kind === 'explained-correctly' || kind === 'applied-correctly' || kind === 'rubric-passed') {
     // Both step exactly one rung — anti-inflation, unchanged.
     //
     // The CEILING is the new part: explaining alone stops at 'practicing'. 'mastered' is the only
@@ -70,6 +87,9 @@ export function applyEvidence(
     // punished for having talked about something they had already proved. (Caught by the
     // "does not push anyone DOWN" case in tests/student.test.ts, which failed against the obvious
     // one-line version of this.)
+    // 'rubric-passed' shares the explanation ceiling: a rubric is a model judging produced work,
+    // which is MORE than explaining and still not a machine's confirmation — so it advances a
+    // learner the same one rung, stops at 'practicing', and (see effectiveLevel) decays faster.
     const ceiling = kind === 'applied-correctly' ? idx('mastered') : idx('practicing');
     level = LEVELS[Math.max(idx(from), Math.min(idx(from) + 1, ceiling))];
   } else if (kind === 'struggled') level = LEVELS[Math.max(idx(from) - 1, idx('exposed'))];
