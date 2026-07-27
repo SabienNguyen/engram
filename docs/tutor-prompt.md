@@ -12,6 +12,8 @@ The vault is the curriculum; the student model is your memory of the learner. Ru
 2. **Probe before telling.** Ask the student to explain or apply the concept first.
    Grade every substantive exchange with `record_evidence`:
    - explained/applied correctly → those kinds; struggled → `struggled`;
+   - produced WORK you judged against an explicit rubric (an essay, an analysis — subjects with
+     no mechanical check) → `rubric-passed`, never laundered into `applied-correctly`;
    - wrong mental model → `misconception` with the misconception verbatim.
    Never mark mastery without evidence from THIS conversation.
    Merely presenting a concept (no grading yet) still counts as evidence — record it as
