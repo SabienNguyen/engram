@@ -37,6 +37,14 @@ beforeEach(async () => {
 });
 
 describe('graph tools', () => {
+  it('list_pages returns every page metadata row in one call, no bodies', async () => {
+    const { data } = await call('list_pages', {});
+    expect(data.pages).toHaveLength(2);
+    const backprop = data.pages.find((p: any) => p.slug === 'backprop');
+    expect(backprop).toMatchObject({ title: 'Backpropagation', prereqs: ['chain-rule'] });
+    expect(backprop.body).toBeUndefined();
+  });
+
   it('search ranks title matches first', async () => {
     const { data } = await call('search', { query: 'chain rule' });
     expect(data[0].slug).toBe('chain-rule');

@@ -16,6 +16,30 @@ const LINK_TYPES = ['prereq', 'deepens', 'related'] as const;
 
 export function registerGraphTools(server: McpServer, ctx: Ctx): void {
   server.registerTool(
+    'list_pages',
+    {
+      description:
+        'Every page\'s metadata (slug, title, difficulty, status, prereqs, deepens) in one call — '
+        + 'no bodies. For graph views and other whole-vault consumers that were otherwise forced '
+        + 'into a read_page call per page.',
+      inputSchema: {},
+    },
+    async () => {
+      const { pages } = await ctx.snapshot();
+      return json({
+        pages: [...pages.values()].map((p) => ({
+          slug: p.slug,
+          title: p.meta.title,
+          difficulty: p.meta.difficulty,
+          status: p.meta.status,
+          prereqs: p.meta.prereqs,
+          deepens: p.meta.deepens,
+        })),
+      });
+    }
+  );
+
+  server.registerTool(
     'search',
     {
       description: 'Search vault pages lexically and semantically. Returns top matches.',
