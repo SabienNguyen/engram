@@ -79,10 +79,11 @@ export function applyEvidence(
   // misconception alive rather than clearing both on one demonstration. Without this, a recorded
   // misconception outlives its own repair and returns in every future session plan.
   let misconceptions = [...prev.misconceptions];
+  let resolvedText: string | undefined;
   if (resolves) {
     const needle = resolves.trim().toLowerCase();
     const i = misconceptions.findIndex((m) => m.toLowerCase().includes(needle) || needle.includes(m.toLowerCase()));
-    if (i >= 0) misconceptions.splice(i, 1);
+    if (i >= 0) [resolvedText] = misconceptions.splice(i, 1);
   }
   if (misconception) misconceptions = [...misconceptions, misconception];
   const from = effectiveLevel(state[slug], now);
@@ -132,7 +133,7 @@ export function applyEvidence(
     ...state,
     [slug]: {
       level,
-      evidence: [...prev.evidence, { date: today, kind, note }],
+      evidence: [...prev.evidence, { date: today, kind, note, ...(resolvedText ? { resolved: resolvedText } : {}) }],
       misconceptions,
       last_reinforced: today,
     },

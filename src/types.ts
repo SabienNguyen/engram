@@ -50,6 +50,10 @@ export interface Evidence {
   date: string; // ISO yyyy-mm-dd
   kind: EvidenceKind;
   note: string;
+  /** When this entry's `resolves` cleared a recorded misconception: the cleared text, verbatim.
+   *  The misconceptions array forgets what was repaired (correctly — it lists ACTIVE confusions);
+   *  the evidence log is where the repair becomes part of the learner's visible history. */
+  resolved?: string;
 }
 
 export interface PageMastery {

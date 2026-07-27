@@ -215,6 +215,16 @@ describe('misconception resolution', () => {
     expect(next['the-page'].misconceptions).toEqual(['confuses molarity with molality']);
   });
 
+  it('a resolution carries the cleared text on its own evidence entry — the repair is history, not amnesia', () => {
+    const state = withMisconceptions(['Thinks C1V1=C2V2 applies when mixing two stocks']);
+    const next = applyEvidence(state, 'the-page', 'applied-correctly', 'redid it right', now, undefined, 'c1v1=c2v2 applies when mixing');
+    const entry = next['the-page'].evidence.at(-1)!;
+    expect(entry.resolved).toBe('Thinks C1V1=C2V2 applies when mixing two stocks');
+    // And a non-resolving entry carries nothing — the field exists only where a repair happened.
+    const plain = applyEvidence(next, 'the-page', 'exposed', 'read it', now);
+    expect(plain['the-page'].evidence.at(-1)!.resolved).toBeUndefined();
+  });
+
   it('resolving one of two similar misconceptions removes only the first match', () => {
     const state = withMisconceptions(['confuses A with B', 'confuses A with B in edge cases']);
     const next = applyEvidence(state, 'the-page', 'explained-correctly', 'clear now', now, undefined, 'confuses A with B');
