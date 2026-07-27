@@ -19,10 +19,13 @@ built on this server — but the server assumes nothing about its client beyond 
 
 - Mastery levels: `unseen → exposed → practicing → mastered` — they change **only** through
   `record_evidence`, never by presenting material.
-- Mastery **decays**: `mastered` needs reinforcement within 45 days, `practicing` within 21, or
-  the *effective* level drops a rung (the raw level is kept for history).
-- Evidence kinds: `exposed`, `explained-correctly`, `applied-correctly`, `struggled`, and
-  `misconception` (with a note; misconceptions are surfaced until explicitly resolved).
+- Mastery **decays**: `mastered` needs reinforcement within 45 days, `practicing` within 21 —
+  and `rubric-passed` evidence within 14, the shortest window, because a rubric verdict is a
+  model's judgment — or the *effective* level drops a rung (the raw level is kept for history).
+- Evidence kinds: `exposed`, `explained-correctly`, `applied-correctly`, `rubric-passed` (a model
+  judged produced work against an explicit rubric — essays, legal analysis — its own kind so it
+  can never launder itself into applied evidence), `struggled`, and `misconception` (with a note;
+  misconceptions are surfaced until explicitly resolved).
 
 ## Tool surface
 
