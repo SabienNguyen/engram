@@ -26,10 +26,33 @@ export class EmbeddingIndex {
   constructor(indexDir: string, private provider: EmbeddingProvider) {
     mkdirSync(indexDir, { recursive: true });
     this.file = join(indexDir, 'embeddings.json');
-    this.data = existsSync(this.file)
-      ? (JSON.parse(readFileSync(this.file, 'utf8')) as Stored)
-      : { provider: provider.name, entries: {} };
-    if (this.data.provider !== provider.name) this.data = { provider: provider.name, entries: {} };
+    this.data = this.loadOrReset();
+  }
+
+  /**
+   * Read the cache, or reset to empty when it can't be trusted. This is a derived, losslessly
+   * rebuildable cache — sync() recomputes every vector from the pages — so "reset" costs one
+   * re-embed, never data. Three ways it can't be trusted:
+   *   - a different provider wrote it (model swap): the vectors aren't comparable.
+   *   - it's corrupt: writeFileSync (sync, below) is not atomic, so a crash or disk-full mid-write
+   *     truncates the file. A bare JSON.parse here threw straight out of the constructor, which
+   *     snapshot() catches by degrading to lexical-only search — but because the throw beat sync()'s
+   *     rewrite, the corrupt file was never repaired and semantic search stayed dead every session
+   *     after, until someone deleted the file by hand. Degrading to empty lets the next sync heal it.
+   *   - it parsed but lost its shape (a hand-edit, a partial legacy file): a missing `entries` would
+   *     throw later in sync()/similarToMany instead, so reject it here too.
+   */
+  private loadOrReset(): Stored {
+    const fresh: Stored = { provider: this.provider.name, entries: {} };
+    if (!existsSync(this.file)) return fresh;
+    try {
+      const parsed = JSON.parse(readFileSync(this.file, 'utf8')) as Stored;
+      if (parsed?.provider !== this.provider.name) return fresh;
+      if (!parsed.entries || typeof parsed.entries !== 'object') return fresh;
+      return parsed;
+    } catch {
+      return fresh;
+    }
   }
 
   async sync(pages: Map<string, Page>): Promise<void> {

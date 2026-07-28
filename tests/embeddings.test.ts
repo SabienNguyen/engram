@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { FakeProvider, getProvider } from '../src/embeddings/provider.js';
@@ -46,5 +46,28 @@ describe('embeddings', () => {
     // similarToMany with filter
     const many = idx2.similarToMany(['gradient-descent'], 5, (s) => s !== 'baking-bread');
     expect(many.map((m) => m.slug)).toEqual(['kelly-criterion']);
+  });
+
+  it('a corrupt cache file self-heals instead of disabling search forever', async () => {
+    // writeFileSync (sync) is not atomic — a crash or disk-full mid-write truncates embeddings.json.
+    // A bare JSON.parse threw straight out of the constructor, and since that beat sync()'s rewrite
+    // the file was never repaired: semantic search stayed dead every session after. Degrading a bad
+    // cache to empty lets the very next sync rebuild it.
+    const dir = mkdtempSync(join(tmpdir(), 'lw-idx-'));
+    writeFileSync(join(dir, 'embeddings.json'), '{"provider":"fake","entries":{"gradient-des'); // truncated
+    const idx = new EmbeddingIndex(dir, new FakeProvider());
+    await idx.sync(pages); // must not throw
+    expect(idx.similarTo('gradient-descent', 1)[0].slug).toBe('kelly-criterion');
+  });
+
+  it('a cache from a different provider is rebuilt, not compared across models', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'lw-idx-'));
+    // A well-formed cache, but tagged as another provider's — its vectors aren't comparable.
+    writeFileSync(join(dir, 'embeddings.json'),
+      JSON.stringify({ provider: 'some-other-model', entries: { 'x': { hash: 'h', vector: [1, 2, 3] } } }));
+    const idx = new EmbeddingIndex(dir, new FakeProvider());
+    await idx.sync(pages);
+    // The stale 'x' entry is gone (rebuilt from the real pages), and search works.
+    expect(idx.similarTo('gradient-descent', 1)[0].slug).toBe('kelly-criterion');
   });
 });
