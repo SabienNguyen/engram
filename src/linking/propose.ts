@@ -9,6 +9,25 @@ Does a specific claim in the source page fail, or get materially enriched, witho
 - For each ACCEPTED candidate call the link_pages tool: { src, dst, type, rationale }.
 - Silently drop candidates you cannot justify. Do not link for mere topical overlap.`;
 
+/**
+ * Whole-word (or whole-phrase) mention of `title` in `body`, not a raw substring. Substring matching
+ * floods the verify gate the same way an empty title does — from the OTHER end: a page titled "set"
+ * would match every body containing "subset" or "settings", and "function" would match "functional",
+ * "functions", "dysfunction". Requiring the title to sit on word boundaries kills that whole class.
+ *
+ * Title metacharacters are escaped, because titles carry them (C++, f(x), √d_k). The `\W` flanks
+ * (rather than `\b`) are deliberate: `\b` misbehaves against a title that begins or ends with a
+ * non-word character, which those examples do.
+ *
+ * The accepted cost is recall: an exact plural no longer matches ("cat" misses "cats"). For a
+ * SUGGESTION gate the learner verifies, precision beats recall — a flood is worse than a missed
+ * hint — and semantic linking still carries the conceptual tie regardless of surface form.
+ */
+function mentions(body: string, title: string): boolean {
+  const esc = title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(?:^|\\W)${esc}(?:\\W|$)`).test(body);
+}
+
 export function proposeLinks(
   page: Page,
   pages: Map<string, Page>,
@@ -43,7 +62,7 @@ export function proposeLinks(
     // passes through: it only checks typeof) would lexically match EVERY page in both directions
     // and flood the verify gate with the whole vault. No title, no lexical signal.
     if (!otherTitle || !myTitle) continue;
-    if (myBody.includes(otherTitle) || other.body.toLowerCase().includes(myTitle)) {
+    if (mentions(myBody, otherTitle) || mentions(other.body.toLowerCase(), myTitle)) {
       offer({ src: page.slug, dst: other.slug, score: 0.5, via: 'lexical' });
     }
   }

@@ -48,4 +48,16 @@ describe('proposeLinks', () => {
     const toEmpty = proposeLinks(withEmpty.get('gradient-descent')!, withEmpty, buildEdges(withEmpty), null);
     expect(toEmpty.map((c) => c.dst)).not.toContain('untitled');
   });
+
+  it('a common-word title matches as a whole word, not a substring — no verify-gate flood', () => {
+    const p = new Map(pages);
+    p.set('set', parsePage('set', '', '---\ntitle: set\n---\nA collection of distinct elements.'));
+    // "subset"/"superset" CONTAIN "set" as a substring — the old includes() would have linked here.
+    p.set('subsets', parsePage('subsets', '', '---\ntitle: Subsets\n---\nEvery subset sits inside a superset.'));
+    // ...but "set" appears as a whole word here, so this one is a real lexical hit.
+    p.set('card-game', parsePage('card-game', '', '---\ntitle: A card game\n---\nYou call "set" when you spot a trio.'));
+    const dsts = proposeLinks(p.get('set')!, p, buildEdges(p), null).map((c) => c.dst); // lexical only
+    expect(dsts).toContain('card-game');
+    expect(dsts).not.toContain('subsets');
+  });
 });
