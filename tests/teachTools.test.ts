@@ -72,6 +72,20 @@ describe('teach tools', () => {
     expect(unknown.data.detail).toBeNull();
   });
 
+  // The detail object must be self-contained: a consumer asking for one slug's detail (the page
+  // reader) gets the same decay countdown the top-level map carries, so it never re-derives the
+  // window from level + last_reinforced.
+  it('per-slug detail carries the decay countdown (days_left, slipped) matching the top-level map', async () => {
+    await call('record_evidence', {
+      student: 'sabien', slug: 'derivatives', kind: 'applied-correctly', note: 'ran it',
+    });
+    const state = await call('get_student_state', { student: 'sabien', slug: 'derivatives' });
+    expect(state.data.detail).toHaveProperty('days_left');
+    expect(state.data.detail).toHaveProperty('slipped');
+    expect(state.data.detail.days_left).toBe(state.data.derivatives.days_left);
+    expect(state.data.detail.slipped).toBe(state.data.derivatives.slipped);
+  });
+
   it('next_lessons suggests frontier work for a fresh student', async () => {
     await call('record_evidence', { student: 'sabien', slug: 'derivatives', kind: 'explained-correctly', note: 'a' });
     await call('record_evidence', { student: 'sabien', slug: 'derivatives', kind: 'applied-correctly', note: 'b' });

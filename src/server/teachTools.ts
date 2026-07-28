@@ -113,6 +113,11 @@ export function registerTeachTools(server: McpServer, ctx: Ctx): void {
               level: m.level,
               effective: effectiveLevel(m, now),
               last_reinforced: m.last_reinforced,
+              // Carry the decay countdown INTO detail, not just the top-level map: a consumer that
+              // asks for one slug's detail (the page reader does) gets a self-contained answer and
+              // never re-derives the window from level + last_reinforced. Same numbers as out[slug].
+              days_left: decayDaysLeft(m, now),
+              slipped: LEVELS.indexOf(effectiveLevel(m, now)) < LEVELS.indexOf(m.level),
               evidence: m.evidence,
               misconceptions: m.misconceptions,
             }
