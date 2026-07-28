@@ -35,10 +35,14 @@ export function proposeLinks(
   }
 
   const myBody = page.body.toLowerCase();
-  const myTitle = page.meta.title.toLowerCase();
+  const myTitle = page.meta.title.toLowerCase().trim();
   for (const other of pages.values()) {
     if (!eligible(other.slug)) continue;
-    const otherTitle = other.meta.title.toLowerCase();
+    const otherTitle = other.meta.title.toLowerCase().trim();
+    // includes('') is always true — an explicitly empty frontmatter title (which the vault loader
+    // passes through: it only checks typeof) would lexically match EVERY page in both directions
+    // and flood the verify gate with the whole vault. No title, no lexical signal.
+    if (!otherTitle || !myTitle) continue;
     if (myBody.includes(otherTitle) || other.body.toLowerCase().includes(myTitle)) {
       offer({ src: page.slug, dst: other.slug, score: 0.5, via: 'lexical' });
     }

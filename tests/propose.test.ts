@@ -38,4 +38,14 @@ describe('proposeLinks', () => {
     expect(VERIFY_CONTRACT).toContain('link_pages');
     expect(VERIFY_CONTRACT).toContain('prereq');
   });
+
+  it("an explicitly empty frontmatter title matches nothing — includes('') is always true", () => {
+    const withEmpty = new Map(pages);
+    withEmpty.set('untitled', parsePage('untitled', '', '---\ntitle: ""\n---\nsome body text.'));
+    // Neither direction: the empty-titled page proposes no lexical links, and no page proposes it.
+    const fromEmpty = proposeLinks(withEmpty.get('untitled')!, withEmpty, buildEdges(withEmpty), null);
+    expect(fromEmpty).toEqual([]);
+    const toEmpty = proposeLinks(withEmpty.get('gradient-descent')!, withEmpty, buildEdges(withEmpty), null);
+    expect(toEmpty.map((c) => c.dst)).not.toContain('untitled');
+  });
 });
