@@ -105,9 +105,33 @@ describe('applyEvidence', () => {
     const next = applyEvidence({ bp: m('mastered', '2026-07-01') }, 'bp', 'exposed', 're-read', d('2026-07-10'));
     expect(next.bp.level).toBe('mastered');
   });
+  it('a bare exposure of a still-mastered page does NOT refresh its decay clock', () => {
+    // The page is 9 days into its 45-day mastered window; a re-read (exposed) is an encounter, not
+    // a re-confirmation, so it must keep counting down from the original date, not restart at 45.
+    // Resetting here would hand a mastered page a fresh window the learner never re-earned — the
+    // same trust-inflation the misconception clock rule already forbids.
+    const next = applyEvidence({ bp: m('mastered', '2026-07-01') }, 'bp', 'exposed', 're-read', d('2026-07-10'));
+    expect(next.bp.level).toBe('mastered');
+    expect(next.bp.last_reinforced).toBe('2026-07-01'); // clock preserved, not '2026-07-10'
+  });
   it('exposure does NOT resurrect decayed mastery — decay materializes at effective level', () => {
     const next = applyEvidence({ bp: m('mastered', '2026-05-01') }, 'bp', 'exposed', 're-read', d('2026-07-10'));
     expect(next.bp.level).toBe('practicing'); // effective was practicing (decayed); exposure keeps it there
+    // and the clock is not refreshed — so effectiveLevel keeps decaying rather than resurrecting.
+    expect(next.bp.last_reinforced).toBe('2026-05-01');
+    expect(effectiveLevel(next.bp, d('2026-07-10'))).toBe('exposed'); // still slipping, not fresh practicing
+  });
+  it('unseen -> exposed still stamps the date (a first encounter DOES establish the exposed standing)', () => {
+    const next = applyEvidence({}, 'bp', 'exposed', 'first look', d('2026-07-10'));
+    expect(next.bp.level).toBe('exposed');
+    expect(next.bp.last_reinforced).toBe('2026-07-10');
+  });
+  it('a demonstrative kind on an already-mastered page DOES restart the clock (re-confirmation)', () => {
+    // applied-correctly is capped at mastered, so the level is unchanged — but the learner did the
+    // work, so unlike a bare exposure this re-confirms the standing and refreshes the window.
+    const next = applyEvidence({ bp: m('mastered', '2026-07-01') }, 'bp', 'applied-correctly', 're-proved', d('2026-07-10'));
+    expect(next.bp.level).toBe('mastered');
+    expect(next.bp.last_reinforced).toBe('2026-07-10');
   });
   it('misconception evidence does NOT resurrect decayed mastery — decay materializes at effective level', () => {
     const next = applyEvidence(

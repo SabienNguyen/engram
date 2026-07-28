@@ -129,14 +129,23 @@ export function applyEvidence(
   } else if (kind === 'struggled') level = LEVELS[Math.max(idx(from) - 1, idx('exposed'))];
   // 'misconception': level unchanged
 
-  // last_reinforced is the date the CURRENT standing was established, and it drives decay. Every
-  // level-changing kind restarts it (including 'struggled': the demoted level's clock starts at
-  // the demotion). 'misconception' changes no level and demonstrates the OPPOSITE of standing —
-  // resetting the clock for it meant recording a learner's confusion extended the system's trust
-  // in their mastery by a whole fresh decay window (caught by a live session-plan audit: a
-  // practicing page a day from review would have earned 21 more days of credit from a
-  // misconception note).
-  const reinforced = kind === 'misconception' ? prev.last_reinforced : today;
+  // last_reinforced is the date the CURRENT standing was established, and it drives decay. A kind
+  // that RE-CONFIRMS the standing restarts it — the demonstrative kinds (applied/explained/rubric,
+  // and 'struggled' whose demoted level starts its clock at the demotion) do, even when the level
+  // is capped or unchanged, because the learner did gradable work. Two kinds do NOT re-confirm and
+  // so keep the existing clock:
+  //   - 'misconception' changes no level and demonstrates the OPPOSITE of standing — resetting the
+  //     clock for it meant recording a learner's confusion extended the system's trust in their
+  //     mastery by a whole fresh decay window (caught by a live session-plan audit: a practicing
+  //     page a day from review would have earned 21 more days of credit from a misconception note).
+  //   - a bare 'exposed' that does NOT raise the level (the page was already ≥ exposed) is an
+  //     ENCOUNTER, not a confirmation: a re-read, a partial pronounce, watched-only code rungs. It
+  //     changes no standing, so — by the very same principle above — it must not refresh the decay
+  //     window and hand a mastered page 45 more days the learner never re-earned. (Only unseen ->
+  //     exposed raises the level, and 'exposed' has no decay clock of its own anyway, so this bites
+  //     exactly the practicing/mastered case where it should.)
+  const reconfirmsStanding = !(kind === 'misconception' || (kind === 'exposed' && idx(level) === idx(from)));
+  const reinforced = reconfirmsStanding ? today : prev.last_reinforced;
 
   return {
     ...state,
