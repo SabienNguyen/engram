@@ -131,7 +131,12 @@ export function registerGraphTools(server: McpServer, ctx: Ctx): void {
       };
       const { pages, edges } = await ctx.snapshot();
       const old = pages.get(args.slug);
-      const incomingPrereqs = args.prereqs ?? old?.meta.prereqs ?? [];
+      // Slugify prereqs to slugs BEFORE the cycle check — parsePage.strArray slugifies these on
+      // read, so a prereq named in free text ("Chain Rule") would otherwise slip past
+      // wouldCreateCycle (which compares against slug-keyed edges), be stored raw, and re-read as
+      // "chain-rule" — materialising the very cycle the check rejects. old?.meta values are already
+      // slugified, so this is a no-op on the update path.
+      const incomingPrereqs = (args.prereqs ?? old?.meta.prereqs ?? []).map((p) => slugify(p));
       const cycleWarnings: string[] = [];
       const prereqs = incomingPrereqs.filter((p) => {
         if (wouldCreateCycle(edges, args.slug, p)) {
@@ -143,8 +148,11 @@ export function registerGraphTools(server: McpServer, ctx: Ctx): void {
       const meta: PageMeta = {
         title: args.title,
         prereqs,
-        deepens: args.deepens ?? old?.meta.deepens ?? [],
-        tags: args.tags ?? old?.meta.tags ?? [],
+        // Same read/write normalisation for the other slug-valued lists: strArray slugifies deepens
+        // and tags on read, so store them the way they'll be read back rather than letting a
+        // free-text "Machine Learning" tag round-trip into "machine-learning" only on the next load.
+        deepens: (args.deepens ?? old?.meta.deepens ?? []).map((d) => slugify(d)),
+        tags: (args.tags ?? old?.meta.tags ?? []).map((t) => slugify(t)),
         difficulty: args.difficulty ?? old?.meta.difficulty ?? 3,
         status: args.status ?? (old && old.meta.status !== 'stub' ? old.meta.status : 'draft'),
         sources: args.sources ?? old?.meta.sources ?? [],

@@ -123,6 +123,29 @@ describe('graph tools', () => {
     expect(page.data.page.meta.prereqs).not.toContain('a');
   });
 
+  it('write_page catches a cycle even when the prereq is named in free text, not a slug', async () => {
+    // The cycle check runs against slug-keyed edges, so a prereq passed as "A" (the title form of
+    // page "a") must be slugified before the check — otherwise it slips past, is stored raw, and
+    // re-reads as "a", quietly forming the b->a->b cycle the check exists to forbid.
+    await call('write_page', { slug: 'a', title: 'A', body: 'a body', prereqs: ['b'] });
+    const second = await call('write_page', { slug: 'b', title: 'B', body: 'b body', prereqs: ['A'] });
+    expect(second.data.graphWarnings.some((w: string) => w.includes('rejected') && w.includes('cycle'))).toBe(true);
+    const page = await call('read_page', { slug: 'b' });
+    expect(page.data.page.meta.prereqs).not.toContain('a');
+  });
+
+  it('write_page slugifies deepens and tags the way read_page reads them back', async () => {
+    const created = await call('write_page', {
+      slug: 'topic', title: 'Topic', body: 'body', deepens: ['Chain Rule'], tags: ['Machine Learning'],
+    });
+    expect(created.data.page.meta.deepens).toEqual(['chain-rule']);
+    expect(created.data.page.meta.tags).toEqual(['machine-learning']);
+    // and the stored form matches, so a reload does not change the metadata under the tutor.
+    const read = await call('read_page', { slug: 'topic' });
+    expect(read.data.page.meta.deepens).toEqual(['chain-rule']);
+    expect(read.data.page.meta.tags).toEqual(['machine-learning']);
+  });
+
   it('write_page slugifies free-text slugs and read_page finds them by slug', async () => {
     const created = await call('write_page', {
       slug: 'Chain Rule 2', title: 'Chain Rule 2', body: 'a second chain rule page',
