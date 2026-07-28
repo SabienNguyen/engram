@@ -179,4 +179,22 @@ describe('graph tools', () => {
     const occurrences = (page.data.page.body.match(/\[\[chain-rule\]\]/g) ?? []).length;
     expect(occurrences).toBe(1);
   });
+
+  it('a related link does not mangle a body heading that merely starts with "## Links"', async () => {
+    // A model-authored section titled "## Links to further reading" contains "## Links" as a
+    // substring; a bare replace injected the new bullet mid-heading and orphaned the rest. The exact
+    // heading must survive intact, and the new link goes in its own fresh "## Links" section.
+    writeFileSync(
+      join(root, 'pages', 'topic.md'),
+      '---\ntitle: Topic\nstatus: solid\n---\nbody text\n\n## Links to further reading\n- see the textbook\n',
+    );
+    await call('link_pages', {
+      src: 'topic', dst: 'chain-rule', type: 'related', rationale: 'lateral connection worth following',
+    });
+    const { data } = await call('read_page', { slug: 'topic' });
+    const body = data.page.body as string;
+    expect(body).toContain('## Links to further reading'); // original heading intact, not "## Links\n…"
+    expect(body).toContain('- see the textbook');          // its original content intact
+    expect(body).toMatch(/\[\[chain-rule\]\]/);            // the new link landed
+  });
 });

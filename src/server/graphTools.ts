@@ -202,8 +202,13 @@ export function registerGraphTools(server: McpServer, ctx: Ctx): void {
       if (type === 'related') {
         if (!srcPage.inlineLinks.includes(dst)) {
           const line = `- [[${dst}]] — ${rationale}`;
-          const body = srcPage.body.includes('## Links')
-            ? srcPage.body.replace('## Links', `## Links\n${line}`)
+          // Anchor to the whole heading LINE, not a bare substring. A model-authored body that
+          // says "## Links to further reading" (or mentions "## Links" in prose) would otherwise
+          // match inside that text and inject mid-heading, mangling what the model wrote. Only our
+          // own exact "## Links" section is appended to; any other heading keeps a fresh section.
+          const linksHeading = /^## Links[ \t]*$/m;
+          const body = linksHeading.test(srcPage.body)
+            ? srcPage.body.replace(linksHeading, `## Links\n${line}`)
             : `${srcPage.body.trimEnd()}\n\n## Links\n${line}\n`;
           ctx.store.writePage(src, srcPage.meta, body, srcPage.domain);
         }
