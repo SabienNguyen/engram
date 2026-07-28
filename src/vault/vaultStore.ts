@@ -17,6 +17,21 @@ export class VaultStore {
     return d;
   }
 
+  /** Resolve `${name}${ext}` as a single file directly inside `dir`, refusing any name that would
+   *  escape it — a `/`, a `..`, an absolute path. Page/path filenames are already safe because they
+   *  come from slugify ([a-z0-9-] only); this guards the FREE-STRING names — student ids, raw
+   *  filenames — that reach the filesystem straight from an MCP argument. This server is a reusable
+   *  MCP endpoint, so it can't assume its client sanitised them (the harness does, but another
+   *  client calling record_evidence with student "../../x" must not write outside the vault). */
+  private fileWithin(dir: string, name: string, ext: string): string {
+    const f = join(dir, `${name}${ext}`);
+    const rel = relative(dir, f);
+    if (rel.startsWith('..') || rel.includes(sep)) {
+      throw new Error(`invalid name: ${JSON.stringify(name)} would escape ${relative(this.root, dir) || '.'}/`);
+    }
+    return f;
+  }
+
   private scanMd(dir: string): string[] {
     if (!existsSync(dir)) return [];
     return readdirSync(dir, { recursive: true, withFileTypes: false })
@@ -64,7 +79,7 @@ export class VaultStore {
   }
 
   readStudent(name: string): StudentState {
-    const f = join(this.root, 'students', `${name}.json`);
+    const f = this.fileWithin(join(this.root, 'students'), name, '.json');
     if (!existsSync(f)) return {};
     try {
       return JSON.parse(readFileSync(f, 'utf8')) as StudentState;
@@ -75,7 +90,7 @@ export class VaultStore {
   }
 
   writeStudent(name: string, s: StudentState): void {
-    writeFileSync(join(this.dir('students'), `${name}.json`), JSON.stringify(s, null, 2));
+    writeFileSync(this.fileWithin(this.dir('students'), name, '.json'), JSON.stringify(s, null, 2));
   }
 
   appendReviewLog(line: string): void {
@@ -107,7 +122,7 @@ export class VaultStore {
   }
 
   readRaw(name: string): string {
-    const f = join(this.root, 'raw', name);
+    const f = this.fileWithin(join(this.root, 'raw'), name, '');
     if (!existsSync(f)) throw new Error(`raw file not found: ${name}`);
     return readFileSync(f, 'utf8');
   }

@@ -47,6 +47,20 @@ describe('VaultStore', () => {
     expect(store.readStudent('sabien')['chain-rule'].level).toBe('exposed');
   });
 
+  it('refuses a student name that would escape the students directory', () => {
+    // record_evidence/get_student_state take `student` as a free string straight from an MCP
+    // argument; a traversal name must not read or write outside the vault, the same containment
+    // the slug-valued paths get for free from slugify.
+    expect(() => store.readStudent('../secret')).toThrow(/escape/);
+    expect(() => store.writeStudent('../../evil', {})).toThrow(/escape/);
+    expect(() => store.readRaw('../students/sabien.json')).toThrow(/escape/);
+    // an ordinary id, including one with dots/underscores, is untouched.
+    store.writeStudent('john.doe_2', {
+      'chain-rule': { level: 'exposed', evidence: [], misconceptions: [], last_reinforced: '2026-07-10' },
+    });
+    expect(store.readStudent('john.doe_2')['chain-rule'].level).toBe('exposed');
+  });
+
   it('prepends review log entries and stores rationales', () => {
     store.appendReviewLog('- 2026-07-10 [prereq] a -> b — because');
     store.appendReviewLog('- 2026-07-11 [related] c -> d — reason2');
