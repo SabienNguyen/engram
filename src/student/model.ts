@@ -129,13 +129,22 @@ export function applyEvidence(
   } else if (kind === 'struggled') level = LEVELS[Math.max(idx(from) - 1, idx('exposed'))];
   // 'misconception': level unchanged
 
+  // last_reinforced is the date the CURRENT standing was established, and it drives decay. Every
+  // level-changing kind restarts it (including 'struggled': the demoted level's clock starts at
+  // the demotion). 'misconception' changes no level and demonstrates the OPPOSITE of standing —
+  // resetting the clock for it meant recording a learner's confusion extended the system's trust
+  // in their mastery by a whole fresh decay window (caught by a live session-plan audit: a
+  // practicing page a day from review would have earned 21 more days of credit from a
+  // misconception note).
+  const reinforced = kind === 'misconception' ? prev.last_reinforced : today;
+
   return {
     ...state,
     [slug]: {
       level,
       evidence: [...prev.evidence, { date: today, kind, note, ...(resolvedText ? { resolved: resolvedText } : {}) }],
       misconceptions,
-      last_reinforced: today,
+      last_reinforced: reinforced,
     },
   };
 }

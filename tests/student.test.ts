@@ -243,3 +243,32 @@ describe('misconception resolution', () => {
     expect(next['the-page'].misconceptions).toEqual(['new confusion']);
   });
 });
+
+// last_reinforced drives decay, and every kind used to reset it — including 'misconception',
+// which changes no level and demonstrates the OPPOSITE of standing. A live session-plan audit
+// caught the consequence: a practicing page one day from review would earn a whole fresh decay
+// window from a misconception note. Confusion must never extend the system's trust.
+describe('last_reinforced semantics per evidence kind', () => {
+  const m = (level: any, last: string) => ({
+    level, evidence: [], misconceptions: [], last_reinforced: last,
+  });
+  const d = (s: string) => new Date(`${s}T12:00:00Z`);
+
+  it('a misconception leaves the decay clock alone', () => {
+    const next = applyEvidence(
+      { bp: m('practicing', '2026-07-01') }, 'bp', 'misconception', 'thinks gradients flow forward', d('2026-07-20'),
+      'thinks gradients flow forward',
+    );
+    expect(next.bp.last_reinforced).toBe('2026-07-01');
+    // The evidence entry itself still carries the day it was recorded.
+    expect(next.bp.evidence.at(-1)!.date).toBe('2026-07-20');
+  });
+
+  it('struggled restarts the clock — the demoted level is established now', () => {
+    const next = applyEvidence(
+      { bp: m('practicing', '2026-07-01') }, 'bp', 'struggled', 'failed the probe', d('2026-07-20'),
+    );
+    expect(next.bp.level).toBe('exposed');
+    expect(next.bp.last_reinforced).toBe('2026-07-20');
+  });
+});
