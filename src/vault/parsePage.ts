@@ -75,7 +75,16 @@ export function parsePage(slug: string, domain: string, raw: string): Page {
   };
   if (warnings.length > 0 && meta.status === 'solid') meta.status = 'draft';
 
-  const inlineLinks = [...new Set([...body.matchAll(WIKI_LINK)].map((m) => slugify(m[1])))];
+  // Extract wiki-links from a code-stripped copy of the body: a `[[note]]` shown inside a fenced
+  // block or an inline-code span is the syntax AS CONTENT (a page teaching wiki/Obsidian markup),
+  // not a real link — counting it minted a phantom 'related' edge and a "no page yet" mention to a
+  // page that never existed. `body` itself is returned untouched; only the link scan skips code.
+  // (inlineLinks uses the captured slug, never a match index, so a non-length-preserving strip is
+  // fine here.) Unlike the chat renderer's \[…\] case, `[[…]]` has no competing meaning in code.
+  const linkScanBody = body
+    .replace(/```[\s\S]*?(?:```|$)/g, '')
+    .replace(/`[^`\n]*`/g, '');
+  const inlineLinks = [...new Set([...linkScanBody.matchAll(WIKI_LINK)].map((m) => slugify(m[1])))];
   return { slug, domain, meta, body, inlineLinks, warnings };
 }
 

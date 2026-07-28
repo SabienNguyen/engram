@@ -26,6 +26,23 @@ describe('parsePage', () => {
     expect(p.warnings).toEqual([]);
   });
 
+  it('ignores [[links]] shown as code — a wiki-syntax lesson mints no phantom edges', () => {
+    // A page teaching wiki/Obsidian markup shows `[[example]]` as content; counting it created a
+    // phantom 'related' edge and a "no page yet" mention to a page that never existed. The real
+    // prose link still counts, and the body is returned untouched.
+    const md = [
+      '---\ntitle: Wiki Syntax\n---',
+      'Type `[[note-name]]` to link, e.g.:',
+      '```',
+      'See [[in-a-fence]] here.',
+      '```',
+      'But [[real-target]] in prose is a genuine link.',
+    ].join('\n');
+    const p = parsePage('wiki-syntax', '', md);
+    expect(p.inlineLinks).toEqual(['real-target']);
+    expect(p.body).toContain('[[note-name]]'); // body verbatim
+  });
+
   it('never crashes on malformed frontmatter; forces draft with warning', () => {
     const p = parsePage('bad', '', '---\nprereqs: not-an-array\nstatus: solid\n---\nbody');
     expect(p.meta.status).toBe('draft');
