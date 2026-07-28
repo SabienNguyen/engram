@@ -81,6 +81,18 @@ describe('teach tools', () => {
     expect(data.note).toBeUndefined();
   });
 
+  it('next_lessons resolves a goal named in natural form, not only as an exact slug', async () => {
+    // The tutor calls this at session start with a goal that often carries the learner's own
+    // phrasing. "Chain Rule" must reach the page "chain-rule" (whose unmet prereq is derivatives),
+    // the same slugify every other page-referencing tool applies — a 404 here silently drops the
+    // whole goal-directed prereq walk.
+    const titled = await call('next_lessons', { student: 'sabien', goal: 'Chain Rule' });
+    expect(titled.isError).toBe(false);
+    expect(titled.data.lessons.map((s: any) => s.slug)).toContain('derivatives');
+    // A goal that genuinely names no page still errors, now against the slugified form.
+    expect((await call('next_lessons', { student: 'sabien', goal: 'no such topic' })).isError).toBe(true);
+  });
+
   it('find_analogies returns known neighbors', async () => {
     await call('record_evidence', { student: 'sabien', slug: 'derivatives', kind: 'explained-correctly', note: 'a' });
     await call('record_evidence', { student: 'sabien', slug: 'derivatives', kind: 'applied-correctly', note: 'b' });

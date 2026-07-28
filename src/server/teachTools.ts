@@ -160,9 +160,19 @@ export function registerTeachTools(server: McpServer, ctx: Ctx): void {
         'Ranked next topics with reasons (review-due / unmet-prereq / frontier). Call at session start.',
       inputSchema: { student: z.string(), goal: z.string().optional(), k: z.number().optional() },
     },
-    async ({ student, goal, k }) => {
+    async ({ student, goal: rawGoal, k }) => {
       const snap = await ctx.snapshot();
-      if (goal && !snap.pages.has(goal)) return err(`page not found: ${goal}`);
+      // Slugify the goal like every other page reference in this file. unmetPrereqs uses it as a
+      // slug key, so a tutor naming a goal the way a learner phrased it ("Chain Rule", "Newton's
+      // Laws") must resolve to the page ("chain-rule", "newtons-laws"), not 404 — the same
+      // input-normalisation record_evidence/find_analogies/read_path already give their slugs.
+      let goal: string | undefined;
+      if (rawGoal !== undefined) {
+        const goalResult = requireSlug(rawGoal, 'goal');
+        if (typeof goalResult !== 'string') return err(goalResult.error);
+        goal = goalResult;
+        if (!snap.pages.has(goal)) return err(`page not found: ${goal}`);
+      }
       const out = nextLessons(
         ctx.store.readStudent(student), snap.pages, snap.index, new Date(), goal, k ?? 3
       );
