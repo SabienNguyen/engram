@@ -1,5 +1,5 @@
 import {
-  existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync,
+  existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync,
 } from 'node:fs';
 import { join, relative, dirname, sep } from 'node:path';
 import matter from 'gray-matter';
@@ -30,6 +30,21 @@ export class VaultStore {
       throw new Error(`invalid name: ${JSON.stringify(name)} would escape ${relative(this.root, dir) || '.'}/`);
     }
     return f;
+  }
+
+  /** Crash-safe write: a plain writeFileSync opens with O_TRUNC, so it empties the file BEFORE
+   *  writing — a process death in that window (container reclaim, OOM kill, power loss) leaves a
+   *  truncated or empty file. For regenerable content that's a nuisance; for the student state it
+   *  is the one irreplaceable thing this vault holds, and readStudent throws on a corrupt file
+   *  rather than silently returning {}. Write a sibling temp and rename over the target: rename is
+   *  atomic on POSIX, so a reader ever sees only the intact old file or the complete new one. The
+   *  temp is a sibling (same directory, same filesystem) so the rename can't fail cross-device; a
+   *  temp left by a crash mid-write is harmless — the next write overwrites it, readers never look
+   *  at it. */
+  private atomicWrite(file: string, content: string): void {
+    const tmp = `${file}.tmp`;
+    writeFileSync(tmp, content);
+    renameSync(tmp, file);
   }
 
   private scanMd(dir: string): string[] {
@@ -90,7 +105,9 @@ export class VaultStore {
   }
 
   writeStudent(name: string, s: StudentState): void {
-    writeFileSync(this.fileWithin(this.dir('students'), name, '.json'), JSON.stringify(s, null, 2));
+    // Atomic: a torn write here corrupts the learner's entire mastery history, which nothing can
+    // regenerate (unlike pages, which the tutor can rewrite). See atomicWrite.
+    this.atomicWrite(this.fileWithin(this.dir('students'), name, '.json'), JSON.stringify(s, null, 2));
   }
 
   appendReviewLog(line: string): void {

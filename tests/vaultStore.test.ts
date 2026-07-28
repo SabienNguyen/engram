@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { mkdtempSync, writeFileSync, mkdirSync, readFileSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, mkdirSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { VaultStore } from '../src/vault/vaultStore.js';
@@ -45,6 +45,24 @@ describe('VaultStore', () => {
       'chain-rule': { level: 'exposed', evidence: [], misconceptions: [], last_reinforced: '2026-07-10' },
     });
     expect(store.readStudent('sabien')['chain-rule'].level).toBe('exposed');
+  });
+
+  it('writes student state atomically — no temp litter, clean overwrite', () => {
+    // The mastery file is the one irreplaceable thing the vault holds, so writeStudent goes through
+    // a temp-then-rename: a torn write can never truncate it. Observable here: after a successful
+    // write the target exists and no `.tmp` sibling is left behind, and a second write cleanly
+    // renames over the existing file (the crash-mid-write case itself needs process death to prove).
+    const f = join(root, 'students', 'sabien.json');
+    store.writeStudent('sabien', {
+      'chain-rule': { level: 'exposed', evidence: [], misconceptions: [], last_reinforced: '2026-07-10' },
+    });
+    expect(existsSync(f)).toBe(true);
+    expect(existsSync(`${f}.tmp`)).toBe(false);
+    store.writeStudent('sabien', {
+      'chain-rule': { level: 'mastered', evidence: [], misconceptions: [], last_reinforced: '2026-07-20' },
+    });
+    expect(store.readStudent('sabien')['chain-rule'].level).toBe('mastered');
+    expect(existsSync(`${f}.tmp`)).toBe(false);
   });
 
   it('refuses a student name that would escape the students directory', () => {
