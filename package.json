@@ -4,7 +4,7 @@
   "description": "Teaching-memory MCP server: an Obsidian-compatible vault of linked concept pages and an evidence-graded student model with decay.",
   "repository": {
     "type": "git",
-    "url": "https://github.com/SabienNguyen/loreweaver.git"
+    "url": "https://github.com/SabienNguyen/engram.git"
   },
   "type": "module",
   "bin": {
