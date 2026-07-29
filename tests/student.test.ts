@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { applyEvidence, decayDaysLeft, effectiveLevel, isKnown } from '../src/student/model.js';
+import { applyEvidence, daysOverdue, decayDaysLeft, effectiveLevel, isKnown } from '../src/student/model.js';
 import { DECAY } from '../src/types.js';
 import type { PageMastery, StudentState } from '../src/types.js';
 
@@ -139,6 +139,71 @@ describe('applyEvidence', () => {
       'thinks gradients flow forward'
     );
     expect(next.bp.level).toBe('practicing'); // effective was practicing (decayed); misconception keeps it there, not mastered
+  });
+});
+
+// Per-item memory strength (FSRS-style): a page's decay window is its base window stretched by how
+// many times, SPACED OUT, the learner has re-confirmed it — and reset by any lapse. All histories
+// here are built through applyEvidence with real dates, so the level, the evidence log and the
+// last_reinforced date are exactly what a real sitting would produce; the ONLY variable across the
+// contrasts is the spacing.
+describe('FSRS per-item stability', () => {
+  const drill = (dates: string[], kind: any = 'applied-correctly'): PageMastery => {
+    let s: StudentState = {};
+    for (const day of dates) s = applyEvidence(s, 'p', kind, '', d(day));
+    return s.p;
+  };
+
+  it('spaced re-confirmation stretches the window; the same page reached once decays on the base clock', () => {
+    // Four applied passes a month apart -> a spaced streak of 4 -> the 4x stability ceiling, so the
+    // 45-day mastered window stretches toward 180. Same current level, same last_reinforced, same
+    // evidence KIND as a crammed page — only the spacing differs.
+    const spaced = drill(['2026-01-01', '2026-02-01', '2026-03-01', '2026-04-01']);
+    const crammed = drill(['2026-04-01', '2026-04-01', '2026-04-01', '2026-04-01']);
+    expect(spaced.level).toBe('mastered');
+    expect(crammed.level).toBe('mastered');
+    expect(spaced.last_reinforced).toBe('2026-04-01');
+    expect(crammed.last_reinforced).toBe('2026-04-01');
+
+    const now = d('2026-05-21'); // 50 days on: past the 45-day base window, well inside the stretched one
+    expect(crammed.level && effectiveLevel(crammed, now)).toBe('practicing'); // slipped — cramming bought nothing
+    expect(effectiveLevel(spaced, now)).toBe('mastered');                      // held — the reps were spaced
+    expect(decayDaysLeft(spaced, now)!).toBeGreaterThan(DECAY.masteredDays);   // more runway than any base window
+    expect(decayDaysLeft(crammed, now)).toBeNull();                            // already gone
+  });
+
+  it('the stretch is bounded — however many spaced reps, the window never exceeds maxFactor x base', () => {
+    // Eight monthly passes would be 1.6^7 ~ 27x unbounded; the cap holds it to 4x (180 days).
+    const many = drill([
+      '2026-01-01', '2026-02-01', '2026-03-01', '2026-04-01',
+      '2026-05-01', '2026-06-01', '2026-07-01', '2026-08-01',
+    ]);
+    // 179 days after the last pass is still inside 4x45=180; 181 is not.
+    expect(effectiveLevel(many, d('2027-01-27'))).toBe('mastered');  // ~179 days
+    expect(effectiveLevel(many, d('2027-01-30'))).toBe('practicing'); // ~182 days -> slipped
+  });
+
+  it('a lapse wipes accumulated stability back to the base window', () => {
+    // Three spaced applied passes build a streak of 3 (window well past base). A struggle resets it;
+    // a prompt recovery climbs back to mastered — but on a fresh streak, so the page rides the plain
+    // 45-day window again, none of the stretch the pre-lapse reps had earned.
+    const relapsed = drill(['2026-01-01', '2026-02-01', '2026-03-01']); // mastered, streak 3
+    let s: StudentState = { p: relapsed };
+    s = applyEvidence(s, 'p', 'struggled', '', d('2026-03-11'));         // demoted to practicing, reset
+    s = applyEvidence(s, 'p', 'applied-correctly', '', d('2026-03-21')); // back to mastered, no bonus
+    expect(s.p.level).toBe('mastered');
+    // 50 days past recovery: a page still riding the old streak-3 window (~115d) would hold; this slips.
+    expect(effectiveLevel(s.p, d('2026-05-10'))).toBe('practicing');
+    expect(decayDaysLeft(s.p, d('2026-04-09'))!).toBeLessThanOrEqual(DECAY.masteredDays);
+  });
+
+  it('the review queue puts a barely-reached page ahead of a well-drilled one at equal staleness', () => {
+    // Both mastered, both last touched on the same day; daysOverdue must rank the fragile page (base
+    // window) as more overdue than the durable one (stretched window), so nextLessons reviews it first.
+    const drilled = drill(['2026-01-01', '2026-02-01', '2026-03-01', '2026-04-01']);
+    const fragile = drill(['2026-04-01', '2026-04-01', '2026-04-01', '2026-04-01']);
+    const now = d('2026-06-01'); // 61 days after 2026-04-01
+    expect(daysOverdue(fragile, now)).toBeGreaterThan(daysOverdue(drilled, now));
   });
 });
 
