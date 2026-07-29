@@ -1,5 +1,5 @@
 import {
-  DECAY, LEVELS,
+  DECAY, LEVELS, STABILITY,
 } from '../types.js';
 import type {
   EvidenceKind, MasteryLevel, PageMastery, StudentState,
@@ -9,6 +9,10 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 
 function idx(l: MasteryLevel): number {
   return LEVELS.indexOf(l);
+}
+
+function daysSince(iso: string, now: Date): number {
+  return (now.getTime() - new Date(iso + 'T00:00:00Z').getTime()) / DAY_MS;
 }
 
 /** Does this page's current standing rest on a rubric verdict? True when the most recent
@@ -23,17 +27,62 @@ function restsOnRubric(m: PageMastery): boolean {
   return false;
 }
 
+/** The BASE decay window for a page's stored level, before per-item stability. mastered gets the
+ *  long window; practicing splits on whether it rests on a rubric verdict (shorter). unseen/exposed
+ *  have no standing to lose, so null. The single place the level→window mapping lives; everything
+ *  else derives from here so the three exported functions can never drift apart. */
+function baseWindow(m: PageMastery): number | null {
+  if (m.level === 'mastered') return DECAY.masteredDays;
+  if (m.level === 'practicing') return restsOnRubric(m) ? DECAY.rubricDays : DECAY.practicingDays;
+  return null;
+}
+
+/** FSRS-style memory strength as a multiplier on the base window. Walks the evidence oldest→newest
+ *  counting SPACED successful reinforcements: a success (applied/explained/rubric) grows the streak
+ *  only when it landed at least `minSpacingFraction` of the base window after the previous
+ *  reinforcement — recalling after a real gap is what consolidates memory, so same-day cramming is
+ *  logged but earns no extra window. A lapse (a 'struggled' demotion or a fresh 'misconception')
+ *  resets the streak to zero: stability the learner has stopped demonstrating is not kept on the
+ *  books. A bare 'exposed' encounter is neutral — neither a success nor a lapse nor an anchor.
+ *  Returns 1 (base window) for a page with zero or one spaced success; grows by `growth` per spaced
+ *  success beyond the first, capped at `maxFactor`. */
+function stabilityFactor(m: PageMastery): number {
+  const base = baseWindow(m);
+  if (base === null) return 1;
+  const minGap = STABILITY.minSpacingFraction * base;
+  let streak = 0;
+  let lastAnchorMs: number | null = null; // last reinforcement we measure spacing from
+  for (const e of m.evidence) {
+    const t = new Date(e.date + 'T00:00:00Z').getTime();
+    if (e.kind === 'applied-correctly' || e.kind === 'explained-correctly' || e.kind === 'rubric-passed') {
+      const gap = lastAnchorMs === null ? Infinity : (t - lastAnchorMs) / DAY_MS;
+      if (gap >= minGap) streak++; // a spaced recall strengthens; a crammed repeat does not
+      lastAnchorMs = t; // either way it is the new reference point for the NEXT one
+    } else if (e.kind === 'struggled' || e.kind === 'misconception') {
+      streak = 0; // a lapse wipes accumulated stability back to the base window
+      if (e.kind === 'struggled') lastAnchorMs = t; // struggled re-anchors (it restarts the clock);
+      // a misconception does not re-anchor — it changes no standing and keeps the existing clock.
+    }
+    // 'exposed': neutral, skipped entirely.
+  }
+  return Math.min(STABILITY.growth ** Math.max(0, streak - 1), STABILITY.maxFactor);
+}
+
+/** This page's ACTUAL decay window: its base window stretched by per-item stability. The one helper
+ *  effectiveLevel/decayDaysLeft/daysOverdue all read, so a well-reinforced page and a barely-reached
+ *  one are treated consistently everywhere. null when there is no standing to decay. */
+function stabilityWindow(m: PageMastery): number | null {
+  const base = baseWindow(m);
+  return base === null ? null : base * stabilityFactor(m);
+}
+
 export function effectiveLevel(m: PageMastery | undefined, now: Date): MasteryLevel {
   if (!m) return 'unseen';
-  const staleDays = (now.getTime() - new Date(m.last_reinforced + 'T00:00:00Z').getTime()) / DAY_MS;
-  if (m.level === 'mastered' && staleDays > DECAY.masteredDays) return 'practicing';
-  if (m.level === 'practicing') {
-    // Rubric-held standing decays on its own, shorter window — the visible consequence of the
-    // evidence being a model's judgment of criteria rather than a machine's confirmation.
-    const window = restsOnRubric(m) ? DECAY.rubricDays : DECAY.practicingDays;
-    if (staleDays > window) return 'exposed';
-  }
-  return m.level;
+  const window = stabilityWindow(m);
+  if (window === null || daysSince(m.last_reinforced, now) <= window) return m.level;
+  // One rung down: mastered→practicing, practicing→exposed (the same single-step decay as before,
+  // now on the stability-adjusted window). exposed/unseen returned null above, so this is exhaustive.
+  return m.level === 'mastered' ? 'practicing' : 'exposed';
 }
 
 export function isKnown(level: MasteryLevel): boolean {
@@ -41,9 +90,10 @@ export function isKnown(level: MasteryLevel): boolean {
 }
 
 /**
- * Days until this page's standing decays a rung, using the SAME windows and the SAME rubric walk
+ * Days until this page's standing decays a rung, using the SAME stability-adjusted window
  * effectiveLevel applies — the memory layer reporting its own expiry, so no consumer re-derives
- * the window and silently promises 21 days to a page that rots in 14.
+ * the window and silently promises 21 days to a page that rots in 14 (or 33 to one a learner has
+ * re-earned).
  *
  * null when nothing is decaying: unseen/exposed pages have no standing to lose, and a page that
  * has ALREADY slipped (level > effective) has no countdown left — `slipped` is the caller's
@@ -51,29 +101,23 @@ export function isKnown(level: MasteryLevel): boolean {
  */
 export function decayDaysLeft(m: PageMastery | undefined, now: Date): number | null {
   if (!m) return null;
-  const staleDays = (now.getTime() - new Date(m.last_reinforced + 'T00:00:00Z').getTime()) / DAY_MS;
-  const window = m.level === 'mastered' ? DECAY.masteredDays
-    : m.level === 'practicing' ? (restsOnRubric(m) ? DECAY.rubricDays : DECAY.practicingDays)
-      : null;
+  const window = stabilityWindow(m);
   if (window === null) return null;
-  const left = Math.ceil(window - staleDays);
+  const left = Math.ceil(window - daysSince(m.last_reinforced, now));
   return left > 0 ? left : null;
 }
 
 /**
  * How many days a page has sat PAST its decay window — the review-queue urgency signal. Uses the
- * same window and rubric walk as effectiveLevel/decayDaysLeft, so a page held up by explanation
- * (14/21-day window) reads as more overdue than a mastered page (45) at the same staleness, which
- * is exactly the priority the queue should reflect. Negative or ~0 for a page that has not slipped
- * yet (those aren't in the queue); 0 for unseen/exposed, which have no window.
+ * same stability-adjusted window as effectiveLevel/decayDaysLeft, so a page held up by explanation
+ * (short window) reads as more overdue than a mastered page (long window) at the same staleness,
+ * and a well-drilled page reads as LESS overdue than a barely-reached one — exactly the priority the
+ * queue should reflect. Negative or ~0 for a page that has not slipped yet (those aren't in the
+ * queue); 0 for unseen/exposed, which have no window.
  */
 export function daysOverdue(m: PageMastery | undefined, now: Date): number {
   if (!m) return 0;
-  const staleDays = (now.getTime() - new Date(m.last_reinforced + 'T00:00:00Z').getTime()) / DAY_MS;
-  const window = m.level === 'mastered' ? DECAY.masteredDays
-    : m.level === 'practicing' ? (restsOnRubric(m) ? DECAY.rubricDays : DECAY.practicingDays)
-      : 0;
-  return staleDays - window;
+  return daysSince(m.last_reinforced, now) - (stabilityWindow(m) ?? 0);
 }
 
 export function applyEvidence(
