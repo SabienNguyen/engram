@@ -29,7 +29,7 @@ beforeEach(async () => {
     join(root, 'pages', 'backprop.md'),
     '---\ntitle: Backpropagation\nprereqs: [chain-rule]\n---\ngradients backwards through layers'
   );
-  const server = new McpServer({ name: 'loreweaver-test', version: '0.0.0' });
+  const server = new McpServer({ name: 'engram-test', version: '0.0.0' });
   registerGraphTools(server, new Ctx(root, new FakeProvider()));
   const [ct, st] = InMemoryTransport.createLinkedPair();
   client = new Client({ name: 'test-client', version: '0.0.0' });

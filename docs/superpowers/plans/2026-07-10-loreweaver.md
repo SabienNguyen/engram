@@ -1,10 +1,10 @@
-# Loreweaver Implementation Plan
+# Engram Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. Execution model: fable-plan-sonnet-execute (one Sonnet subagent per task, main session reviews).
 
 **Goal:** A TypeScript MCP server exposing a markdown teaching-vault (linked pages, curated paths, evidence-graded student model) so any MCP agent can tutor from it.
 
-**Architecture:** Plain markdown vault is the source of truth; `.index/` holds rebuildable caches (embeddings, rationales). The server is memory + graph queries only. LLM judgment (link verification, source compilation) is delegated to the *calling agent*: tools return candidate lists plus "contract" instruction text; the agent judges and calls back (`link_pages`, `write_page`). Spec: `docs/superpowers/specs/2026-07-10-loreweaver-design.md`.
+**Architecture:** Plain markdown vault is the source of truth; `.index/` holds rebuildable caches (embeddings, rationales). The server is memory + graph queries only. LLM judgment (link verification, source compilation) is delegated to the *calling agent*: tools return candidate lists plus "contract" instruction text; the agent judges and calls back (`link_pages`, `write_page`). Spec: `docs/superpowers/specs/2026-07-10-engram-design.md`.
 
 **Tech Stack:** TypeScript (strict, NodeNext), `@modelcontextprotocol/sdk` (stdio), `gray-matter`, `zod`, `vitest`, `tsx`. Embeddings via Ollama `nomic-embed-text` (pluggable, `fake` provider for tests).
 
@@ -38,10 +38,10 @@
 `package.json`:
 ```json
 {
-  "name": "loreweaver",
+  "name": "engram",
   "version": "0.1.0",
   "type": "module",
-  "bin": { "loreweaver": "dist/server.js" },
+  "bin": { "engram": "dist/server.js" },
   "scripts": {
     "build": "tsc",
     "test": "vitest run",
@@ -1547,7 +1547,7 @@ beforeEach(async () => {
     join(root, 'pages', 'backprop.md'),
     '---\ntitle: Backpropagation\nprereqs: [chain-rule]\n---\ngradients backwards through layers'
   );
-  const server = new McpServer({ name: 'loreweaver-test', version: '0.0.0' });
+  const server = new McpServer({ name: 'engram-test', version: '0.0.0' });
   registerGraphTools(server, new Ctx(root, new FakeProvider()));
   const [ct, st] = InMemoryTransport.createLinkedPair();
   client = new Client({ name: 'test-client', version: '0.0.0' });
@@ -1869,7 +1869,7 @@ git commit -m "feat: MCP graph tools — search, read/write page, verified linki
   - `record_evidence { student, slug, kind: enum, note, misconception? }` — slug must exist as page (error otherwise); `applyEvidence` with `new Date()`; persists; returns `{ slug, level, effective }`
   - `next_lessons { student, goal?, k? }` → `LessonSuggestion[]` (uses snapshot index; goal must exist if given); response includes `embeddingsError` if index unavailable
   - `find_analogies { student, slug, k? }` → analogies list; error if slug missing; `{ analogies: [], note: embeddingsError }` when no index
-- Produces (`server.ts`): entrypoint — reads `LOREWEAVER_VAULT` (exit 1 with stderr message if unset), `getProvider()`, creates `McpServer { name: 'loreweaver', version: '0.1.0' }`, registers both tool groups, connects `StdioServerTransport`.
+- Produces (`server.ts`): entrypoint — reads `LOREWEAVER_VAULT` (exit 1 with stderr message if unset), `getProvider()`, creates `McpServer { name: 'engram', version: '0.1.0' }`, registers both tool groups, connects `StdioServerTransport`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1902,7 +1902,7 @@ beforeEach(async () => {
   writeFileSync(join(root, 'pages', 'derivatives.md'), '---\ntitle: Derivatives\ndifficulty: 1\n---\nrates of change');
   writeFileSync(join(root, 'pages', 'chain-rule.md'), '---\ntitle: Chain Rule\nprereqs: [derivatives]\ndifficulty: 2\n---\ncomposed derivatives');
   writeFileSync(join(root, 'raw', 'lecture.md'), 'Today we cover the chain rule and gradients.');
-  const server = new McpServer({ name: 'loreweaver-test', version: '0.0.0' });
+  const server = new McpServer({ name: 'engram-test', version: '0.0.0' });
   const ctx = new Ctx(root, new FakeProvider());
   registerGraphTools(server, ctx);
   registerTeachTools(server, ctx);
@@ -2117,7 +2117,7 @@ if (!root) {
   process.exit(1);
 }
 
-const server = new McpServer({ name: 'loreweaver', version: '0.1.0' });
+const server = new McpServer({ name: 'engram', version: '0.1.0' });
 const ctx = new Ctx(root, getProvider());
 registerGraphTools(server, ctx);
 registerTeachTools(server, ctx);
@@ -2190,7 +2190,7 @@ afterAll(async () => {
   await client.close();
 });
 
-describe('loreweaver over stdio', () => {
+describe('engram over stdio', () => {
   it('lists all 13 tools', async () => {
     const { tools } = await client.listTools();
     const names = tools.map((t) => t.name).sort();
@@ -2231,13 +2231,13 @@ Expected: PASS if Tasks 1-10 are correct — this test is the gate, not new code
 - [ ] **Step 3: Write `docs/tutor-prompt.md`**
 
 ```markdown
-# Loreweaver Tutor Prompt
+# Engram Tutor Prompt
 
-System prompt / skill text for any agent connected to the loreweaver MCP server.
+System prompt / skill text for any agent connected to the engram MCP server.
 
 ---
 
-You are a personal tutor backed by the Loreweaver teaching-memory server.
+You are a personal tutor backed by the Engram teaching-memory server.
 The vault is the curriculum; the student model is your memory of the learner. Rules:
 
 1. **Open every session** with `next_lessons { student }` (add `goal` if the student named one).
@@ -2260,7 +2260,7 @@ The vault is the curriculum; the student model is your memory of the learner. Ru
 - [ ] **Step 4: Write `README.md`**
 
 ```markdown
-# Loreweaver
+# Engram
 
 Teaching-memory MCP server: an Obsidian-compatible markdown vault of linked concept
 pages, curated learning paths ("rabbit holes"), and a persistent evidence-graded
@@ -2290,9 +2290,9 @@ vault/
 ```json
 {
   "mcpServers": {
-    "loreweaver": {
+    "engram": {
       "command": "npx",
-      "args": ["tsx", "/absolute/path/to/loreweaver/src/server.ts"],
+      "args": ["tsx", "/absolute/path/to/engram/src/server.ts"],
       "env": { "LOREWEAVER_VAULT": "/absolute/path/to/vault" }
     }
   }
@@ -2307,7 +2307,7 @@ vault/
 ## Teaching
 
 Give your agent `docs/tutor-prompt.md` as its system prompt / skill.
-Design spec: `docs/superpowers/specs/2026-07-10-loreweaver-design.md`.
+Design spec: `docs/superpowers/specs/2026-07-10-engram-design.md`.
 
 ## Tests
 

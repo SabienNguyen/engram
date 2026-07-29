@@ -1,4 +1,4 @@
-// Tiny MCP client for driving the loreweaver server from the CLI.
+// Tiny MCP client for driving the engram server from the CLI.
 // Usage: node lw.mjs <tool> '<json-args>'   (or: node lw.mjs list)
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';

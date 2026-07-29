@@ -1,5 +1,5 @@
 {
-  "name": "loreweaver",
+  "name": "engram",
   "version": "0.1.0",
   "description": "Teaching-memory MCP server: an Obsidian-compatible vault of linked concept pages and an evidence-graded student model with decay.",
   "repository": {
@@ -8,7 +8,7 @@
   },
   "type": "module",
   "bin": {
-    "loreweaver": "dist/server.js"
+    "engram": "dist/server.js"
   },
   "scripts": {
     "build": "tsc",

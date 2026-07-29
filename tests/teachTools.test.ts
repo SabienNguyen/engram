@@ -25,7 +25,7 @@ beforeEach(async () => {
   writeFileSync(join(root, 'pages', 'derivatives.md'), '---\ntitle: Derivatives\ndifficulty: 1\n---\nrates of change');
   writeFileSync(join(root, 'pages', 'chain-rule.md'), '---\ntitle: Chain Rule\nprereqs: [derivatives]\ndifficulty: 2\n---\ncomposed derivatives');
   writeFileSync(join(root, 'raw', 'lecture.md'), 'Today we cover the chain rule and gradients.');
-  const server = new McpServer({ name: 'loreweaver-test', version: '0.0.0' });
+  const server = new McpServer({ name: 'engram-test', version: '0.0.0' });
   const ctx = new Ctx(root, new FakeProvider());
   registerGraphTools(server, ctx);
   registerTeachTools(server, ctx);

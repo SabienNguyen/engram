@@ -1,4 +1,4 @@
-# Loreweaver
+# Engram
 
 **Teaching memory for MCP agents: a markdown vault of linked concepts and an evidence-graded
 model of what each student has actually proven.**
@@ -8,11 +8,11 @@ model of what each student has actually proven.**
 Any MCP agent that connects gets durable memory of both the **subject** (an Obsidian-compatible
 vault of concept pages with typed prerequisite/deepens edges and curated learning paths) and the
 **student** (per-student mastery that only changes through recorded evidence, and decays without
-reinforcement). Loreweaver is designed to be the *single writer* of that state — clients read and
+reinforcement). Engram is designed to be the *single writer* of that state — clients read and
 teach through its tools; nothing else touches the files.
 
 The reference client is
-[loreweaver-harness](https://github.com/SabienNguyen/loreweaver-harness), a full desktop tutor
+[engram-harness](https://github.com/SabienNguyen/loreweaver-harness), a full desktop tutor
 built on this server — but the server assumes nothing about its client beyond MCP over stdio.
 
 ## The evidence model
@@ -65,9 +65,9 @@ vault/
 ```json
 {
   "mcpServers": {
-    "loreweaver": {
+    "engram": {
       "command": "npx",
-      "args": ["tsx", "/absolute/path/to/loreweaver/src/server.ts"],
+      "args": ["tsx", "/absolute/path/to/engram/src/server.ts"],
       "env": { "LOREWEAVER_VAULT": "/absolute/path/to/vault" }
     }
   }
@@ -84,7 +84,7 @@ vault/
 
 Give your agent `docs/tutor-prompt.md` as its system prompt or skill — it encodes the teaching
 discipline the tools assume (present, check, record; never promote from recall alone). The full
-design rationale lives in `docs/superpowers/specs/2026-07-10-loreweaver-design.md`.
+design rationale lives in `docs/superpowers/specs/2026-07-10-engram-design.md`.
 
 ## Tests
 

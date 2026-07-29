@@ -1,4 +1,4 @@
-# Loreweaver — Teaching-Memory MCP Server
+# Engram — Teaching-Memory MCP Server
 
 **Date:** 2026-07-10
 **Status:** Approved design
@@ -8,7 +8,7 @@
 Agentic systems have no durable *teaching* memory. Karpathy's LLM-wiki pattern
 (markdown + wiki-links, LLM-compiled) gives a teacher durable, linkable knowledge but
 no model of the student. Google's Guided Learning / LearnLM gives tutor behavior but no
-persistent knowledge graph and only session-scoped student state. Loreweaver is the
+persistent knowledge graph and only session-scoped student state. Engram is the
 union plus the missing piece: a **linked markdown knowledge vault**, a **persistent
 evidence-graded student model**, and **graph queries that turn any agent into a
 competent tutor** — exposed over MCP so any agentic system can plug in.
@@ -21,7 +21,7 @@ competent tutor** — exposed over MCP so any agentic system can plug in.
 └───────────────┬─────────────────────────────────────┘
                 │ MCP (stdio)
 ┌───────────────▼─────────────────────────────────────┐
-│  loreweaver MCP server (TypeScript, Node)           │
+│  engram MCP server (TypeScript, Node)           │
 │  graph math · embeddings · student state · queries  │
 └───────────────┬─────────────────────────────────────┘
                 │ reads/writes
@@ -200,7 +200,7 @@ markdown is the source of truth; `.index/` is a rebuildable cache.
 ## Deliverable 2: `fable-plan-sonnet-execute` skill
 
 A personal Claude Code skill at `~/.claude/skills/fable-plan-sonnet-execute/SKILL.md`
-encoding the build workflow (used to build Loreweaver itself):
+encoding the build workflow (used to build Engram itself):
 
 - **Plan on Fable:** brainstorm → spec → implementation plan happen in the main
   session (Fable, high effort). No implementation code is written by the main session.
