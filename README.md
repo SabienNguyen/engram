@@ -3,7 +3,7 @@
 **Teaching memory for MCP agents: a markdown vault of linked concepts and an evidence-graded
 model of what each student has actually proven.**
 
-[![ci](https://github.com/SabienNguyen/loreweaver/actions/workflows/ci.yml/badge.svg)](https://github.com/SabienNguyen/loreweaver/actions/workflows/ci.yml)
+[![ci](https://github.com/SabienNguyen/engram/actions/workflows/ci.yml/badge.svg)](https://github.com/SabienNguyen/engram/actions/workflows/ci.yml)
 
 Any MCP agent that connects gets durable memory of both the **subject** (an Obsidian-compatible
 vault of concept pages with typed prerequisite/deepens edges and curated learning paths) and the
@@ -12,7 +12,7 @@ reinforcement). Engram is designed to be the *single writer* of that state — c
 teach through its tools; nothing else touches the files.
 
 The reference client is
-[engram-harness](https://github.com/SabienNguyen/loreweaver-harness), a full desktop tutor
+[Myelin](https://github.com/SabienNguyen/myelin), a full desktop tutor
 built on this server — but the server assumes nothing about its client beyond MCP over stdio.
 
 ## The evidence model
