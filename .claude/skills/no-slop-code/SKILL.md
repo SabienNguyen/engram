@@ -1,9 +1,9 @@
 ---
 name: no-slop-code
-description: Implementation standards for the Loreweaver MCP server — use before writing or editing any TypeScript here, and when reviewing a diff. Covers the boundary rules a contributor would otherwise break (the server never teaches, mastery only moves through record_evidence, the prereq graph stays acyclic, links require a rationale, the vault stays plain Obsidian markdown) plus the code-slop patterns this repo rejects: comments that restate the line, speculative abstraction, swallowed errors, casual dependencies, and tests that assert nothing.
+description: Implementation standards for the Engram MCP server — use before writing or editing any TypeScript here, and when reviewing a diff. Covers the boundary rules a contributor would otherwise break (the server never teaches, mastery only moves through record_evidence, the prereq graph stays acyclic, links require a rationale, the vault stays plain Obsidian markdown) plus the code-slop patterns this repo rejects: comments that restate the line, speculative abstraction, swallowed errors, casual dependencies, and tests that assert nothing.
 ---
 
-# No-Slop Code (loreweaver)
+# No-Slop Code (engram)
 
 This server is ~1,136 LOC across 13 tools with three runtime dependencies
 (`@modelcontextprotocol/sdk`, `gray-matter`, `zod`). Smallness is the feature: it is the memory layer

@@ -52,7 +52,7 @@ export class FakeProvider implements EmbeddingProvider {
 export function getProvider(
   env: Record<string, string | undefined> = process.env
 ): EmbeddingProvider | null {
-  const mode = env.LOREWEAVER_EMBEDDINGS ?? 'ollama';
+  const mode = env.ENGRAM_EMBEDDINGS ?? env.LOREWEAVER_EMBEDDINGS ?? 'ollama';
   if (mode === 'none') return null;
   if (mode === 'fake') return new FakeProvider();
   return new OllamaProvider();

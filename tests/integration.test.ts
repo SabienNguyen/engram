@@ -35,7 +35,7 @@ afterAll(async () => {
   await client.close();
 });
 
-describe('loreweaver over stdio', () => {
+describe('engram over stdio', () => {
   it('lists all 14 tools', async () => {
     const { tools } = await client.listTools();
     const names = tools.map((t) => t.name).sort();
