@@ -39,6 +39,18 @@ describe('queries', () => {
     expect(due[0].reason).toBe('review-due');
   });
 
+  it('reviewDue orders by how far past its decay window each page has slipped', () => {
+    // chain-rule is FIRST in insertion order but least overdue; the sort must win over that so
+    // nextLessons' top-2 review slots go to the pages slipping hardest.
+    const state: StudentState = {
+      'chain-rule': mastery('mastered', '2026-05-20'),    // 51d stale, 45d window -> ~6 overdue
+      derivatives: mastery('practicing', '2026-05-01'),   // 70d stale, 21d window -> ~49 overdue
+      kelly: mastery('practicing', '2026-06-01'),         // 39d stale, 21d window -> ~18 overdue
+    };
+    const due = reviewDue(state, pages, NOW);
+    expect(due.map((s) => s.slug)).toEqual(['derivatives', 'kelly', 'chain-rule']);
+  });
+
   it('unmetPrereqs walks the chain deepest-first', () => {
     const gaps = unmetPrereqs('backprop', pages, {}, NOW);
     expect(gaps.map((g) => g.slug)).toEqual(['derivatives', 'chain-rule']);

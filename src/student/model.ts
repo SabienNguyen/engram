@@ -60,6 +60,22 @@ export function decayDaysLeft(m: PageMastery | undefined, now: Date): number | n
   return left > 0 ? left : null;
 }
 
+/**
+ * How many days a page has sat PAST its decay window — the review-queue urgency signal. Uses the
+ * same window and rubric walk as effectiveLevel/decayDaysLeft, so a page held up by explanation
+ * (14/21-day window) reads as more overdue than a mastered page (45) at the same staleness, which
+ * is exactly the priority the queue should reflect. Negative or ~0 for a page that has not slipped
+ * yet (those aren't in the queue); 0 for unseen/exposed, which have no window.
+ */
+export function daysOverdue(m: PageMastery | undefined, now: Date): number {
+  if (!m) return 0;
+  const staleDays = (now.getTime() - new Date(m.last_reinforced + 'T00:00:00Z').getTime()) / DAY_MS;
+  const window = m.level === 'mastered' ? DECAY.masteredDays
+    : m.level === 'practicing' ? (restsOnRubric(m) ? DECAY.rubricDays : DECAY.practicingDays)
+      : 0;
+  return staleDays - window;
+}
+
 export function applyEvidence(
   state: StudentState,
   slug: string,

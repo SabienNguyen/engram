@@ -1,4 +1,4 @@
-import { effectiveLevel, isKnown } from '../student/model.js';
+import { daysOverdue, effectiveLevel, isKnown } from '../student/model.js';
 import type { EmbeddingIndex } from '../embeddings/index.js';
 import type { LessonSuggestion, Page, StudentState } from '../types.js';
 
@@ -24,7 +24,9 @@ export function reviewDue(
       });
     }
   }
-  return out;
+  // Most overdue first, so nextLessons' top-2 review slots are the pages slipping hardest rather
+  // than whichever the state object happened to enumerate first.
+  return out.sort((a, b) => daysOverdue(state[b.slug], now) - daysOverdue(state[a.slug], now));
 }
 
 export function unmetPrereqs(
