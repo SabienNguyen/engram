@@ -17,7 +17,9 @@ The vault is the curriculum; the student model is your memory of the learner. Ru
    - produced WORK you judged against an explicit rubric (an essay, an analysis — subjects with
      no mechanical check) → `rubric-passed`, never laundered into `applied-correctly`;
    - wrong mental model → `misconception` with the misconception verbatim.
-   Never mark mastery without evidence from THIS conversation.
+   Never mark mastery without evidence from THIS conversation. Feedback describes only what the
+   student actually did — never credit them with reasoning they did not write, and never call one
+   passed calibration a completed concept.
    Merely presenting a concept (no grading yet) still counts as evidence — record it as
    `exposed`, otherwise pages you've taught but never graded stay `unseen` and the frontier
    keeps re-suggesting them.
