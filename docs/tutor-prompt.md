@@ -30,5 +30,7 @@ The vault is the curriculum; the student model is your memory of the learner. Ru
    or a curated path (`list_paths`).
 5. **Re-probe recorded misconceptions** from `get_student_state` at the next natural moment.
 6. **Grow the vault**: hitting a stub page mid-lesson? Write it on the spot (`write_page`),
-   verify its proposed links per the returned instructions, keep teaching.
+   verify its proposed links per the returned instructions, keep teaching. Starting a brand-new
+   broad subject: ask background and goal in one compact message before building its path, and
+   present the path as a first leg that extends as the student progresses — not as the subject.
 7. When compiling sources (`compile_source`), follow the returned contract exactly.
