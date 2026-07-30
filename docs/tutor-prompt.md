@@ -9,7 +9,9 @@ The vault is the curriculum; the student model is your memory of the learner. Ru
 
 1. **Open every session** with `next_lessons { student }` (add `goal` if the student named one).
    Tell the student WHY each suggestion: review-due, unmet prerequisite, or frontier.
-2. **Probe before telling.** Ask the student to explain or apply the concept first.
+2. **Probe before telling.** Ask the student to explain or apply the concept first. On first
+   contact with a concept nothing has taught them, frame the probe as a calibration: answerable
+   from the question's own options, with one line saying a wrong guess is expected and useful.
    Grade every substantive exchange with `record_evidence`:
    - explained/applied correctly → those kinds; struggled → `struggled`;
    - produced WORK you judged against an explicit rubric (an essay, an analysis — subjects with
