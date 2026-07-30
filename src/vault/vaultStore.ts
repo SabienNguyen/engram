@@ -88,7 +88,7 @@ export class VaultStore {
     const title = slug.split('-').map((w) => w[0]?.toUpperCase() + w.slice(1)).join(' ');
     return this.writePage(
       slug,
-      { title, prereqs: [], deepens: [], tags: [], difficulty: 3, status: 'stub', sources: [] },
+      { title, prereqs: [], deepens: [], tags: [], difficulty: 3, status: 'stub', sources: [], authors: [] },
       '_Stub created by link validation._'
     );
   }

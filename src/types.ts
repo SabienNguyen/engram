@@ -9,6 +9,12 @@ export interface PageMeta {
   difficulty: number; // 1-5
   status: PageStatus;
   sources: string[];
+  /** The humans credited with the source this page was compiled from — names as written, never
+   * slugified (a person is not an identifier). Separate from `sources`, which records WHERE the
+   * material came from: "who wrote it" is the axis a learner actually chooses along — liking a
+   * book is a reason to read more BY THAT AUTHOR, not more about the topic — so it gets a field
+   * rather than being buried in a citation string. Empty when the source credits no one. */
+  authors: string[];
 }
 
 export interface Page {

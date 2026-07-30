@@ -29,11 +29,22 @@ function stripFrontmatterBestEffort(raw: string): string {
   return raw;
 }
 
-// sources are file paths, not slugs — do not slugify them.
+// sources are file paths, not slugs — do not slugify them. Same for authors: a person's name is
+// not an identifier, and "Grant Sanderson" must not come back as "grant-sanderson".
 function sourcesArray(v: unknown, warnings: string[]): string[] {
   if (v === undefined || v === null) return [];
   if (Array.isArray(v)) return v.map(String);
   warnings.push('invalid sources: expected string array');
+  return [];
+}
+
+function authorsArray(v: unknown, warnings: string[]): string[] {
+  if (v === undefined || v === null) return [];
+  if (Array.isArray(v)) return v.map(String).map((s) => s.trim()).filter(Boolean);
+  // A single name unbracketed in frontmatter (`authors: Grant Sanderson`) is the obvious hand-edit
+  // and means exactly one author — read it rather than warning a human's own note into a warning.
+  if (typeof v === 'string') return v.trim() ? [v.trim()] : [];
+  warnings.push('invalid authors: expected string array');
   return [];
 }
 
@@ -72,6 +83,7 @@ export function parsePage(slug: string, domain: string, raw: string): Page {
     difficulty,
     status,
     sources: sourcesArray(data.sources, warnings),
+    authors: authorsArray(data.authors, warnings),
   };
   if (warnings.length > 0 && meta.status === 'solid') meta.status = 'draft';
 
