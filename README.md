@@ -37,6 +37,13 @@ built on this server — but the server assumes nothing about its client beyond 
 | `link_pages` / `unlink_pages` — typed edges (`prereq`, `deepens`, `related`), cycle-checked | `record_evidence` — the only door mastery moves through |
 | | `next_lessons` — what this student should meet next |
 | | `find_analogies` — bridges from what they already own |
+| | `working_set` — the recently-exercised region, one hop out |
+
+`working_set` is a deterministic read-only view for harnesses: the student's most recently
+evidenced pages (up to half of `k`, default 20, cap 50) plus their 1-hop graph neighbors, each
+tagged with why it is there and flagged when its effective level has decayed. No embeddings and no
+randomness — identical vault, student state, and clock give identical members — so a cache-first
+client can consult it before running a full search.
 
 Writes are conservative on purpose: `write_page` proposes links back to the caller for
 verification rather than inventing edges, `link_pages` refuses cycles, and every accepted link
@@ -89,7 +96,7 @@ design rationale lives in `docs/superpowers/specs/2026-07-10-engram-design.md`.
 ## Tests
 
 ```bash
-npm test        # 84 tests, including a seeded fuzz suite over the page parser
+npm test        # 114 tests, including a seeded fuzz suite over the page parser
 ```
 
 CI builds and runs the full suite on every push. The page parser — the surface compiled,

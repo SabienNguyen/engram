@@ -92,6 +92,17 @@ export interface LinkCandidate {
   via: 'semantic' | 'lexical';
 }
 
+export interface WorkingSetMember {
+  slug: string;
+  title: string;
+  level: MasteryLevel; // stored
+  effective: MasteryLevel; // decay-adjusted, at the time of the call
+  lastEvidence: string | null; // ISO yyyy-mm-dd of the freshest evidence; null for a pulled-in neighbor with none
+  due: boolean; // effective !== level, i.e. the standing has decayed
+  why: 'recent-evidence' | `neighbor:${string}`; // neighbor tag names the seed that pulled it in
+  misconceptions?: number; // present only when > 0
+}
+
 export interface LessonSuggestion {
   slug: string;
   title: string;

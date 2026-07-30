@@ -3,7 +3,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { Ctx, json, err } from './context.js';
 import { applyEvidence, decayDaysLeft, effectiveLevel } from '../student/model.js';
 import { LEVELS } from '../types.js';
-import { analogies, nextLessons } from '../queries/queries.js';
+import { analogies, nextLessons, workingSet } from '../queries/queries.js';
 import { slugify } from '../vault/parsePage.js';
 
 function requireSlug(raw: string, field: string): string | { error: string } {
@@ -201,6 +201,28 @@ export function registerTeachTools(server: McpServer, ctx: Ctx): void {
         slug, ctx.store.readStudent(student), snap.pages, snap.index, new Date(), k ?? 3
       );
       return json({ analogies: out, ...(snap.embeddingsError ? { note: snap.embeddingsError } : {}) });
+    }
+  );
+
+  server.registerTool(
+    'working_set',
+    {
+      description:
+        "The student's recently-exercised pages (ranked by evidence recency) plus their 1-hop "
+        + 'graph neighbors, with decay flags. Deterministic and read-only — consult it to assemble '
+        + 'session context or check recent work cheaply, before running any full search.',
+      inputSchema: { student: z.string(), k: z.number().optional() },
+    },
+    async ({ student, k }) => {
+      const { pages, edges } = await ctx.snapshot();
+      const now = new Date();
+      // Cap 50: this is the cheap pre-search view; a caller wanting the whole vault wants
+      // list_pages. Floor at 0 so a negative k cannot reach slice() and drop seeds from the end.
+      const cap = Math.max(0, Math.min(Math.floor(k ?? 20), 50));
+      return json({
+        generatedAt: now.toISOString(),
+        members: workingSet(ctx.store.readStudent(student), pages, edges, now, cap),
+      });
     }
   );
 }
