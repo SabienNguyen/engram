@@ -154,3 +154,62 @@ export function analogies(
     .similarTo(slug, k, (s) => known.has(s))
     .map(({ slug: s, score }) => ({ slug: s, title: title(pages, s), score }));
 }
+
+/** One author the learner has material from, with what that material has actually produced. */
+export interface AuthorAffinity {
+  author: string;
+  /** Pages compiled from this author's material that are in the vault. */
+  pages: number;
+  /** Of those, how many the learner has proven at all (any positive evidence). */
+  proven: number;
+  /** Positive evidence entries across this author's pages — the "you learned from this person"
+   *  signal, counted rather than scored so the number means one checkable thing. */
+  provenEvidence: number;
+  /** Struggles and misconceptions across them — shown beside `proven` so an author whose material
+   *  is not landing is visible too, rather than ranked purely by volume. */
+  struggles: number;
+  /** Most recent evidence date on any of this author's pages, ISO, or null if never exercised. */
+  lastEvidence: string | null;
+}
+
+const POSITIVE = new Set(['explained-correctly', 'applied-correctly', 'rubric-passed']);
+
+/**
+ * Which authors the learner has actually learned from, derived — never declared.
+ *
+ * The principle (3blue1brown's, and this app's): you choose material by WHO made it, and the
+ * evidence that an author suits you is that their material produced proven learning, not that you
+ * said you liked them. So this counts real evidence on the pages compiled from each author's
+ * source and reports the struggles alongside, leaving the judgement to the caller. Authors with no
+ * pages in the vault cannot appear: affinity is a fact about material you have, not a preference
+ * store.
+ */
+export function authorAffinity(
+  state: StudentState, pages: Map<string, Page>,
+): AuthorAffinity[] {
+  const byAuthor = new Map<string, AuthorAffinity>();
+  for (const page of pages.values()) {
+    for (const author of page.meta.authors) {
+      const a = byAuthor.get(author) ?? {
+        author, pages: 0, proven: 0, provenEvidence: 0, struggles: 0, lastEvidence: null,
+      };
+      a.pages++;
+      const mastery = state[page.slug];
+      if (mastery) {
+        let positive = 0;
+        for (const e of mastery.evidence) {
+          if (POSITIVE.has(e.kind)) positive++;
+          else if (e.kind === 'struggled' || e.kind === 'misconception') a.struggles++;
+          if (a.lastEvidence === null || e.date > a.lastEvidence) a.lastEvidence = e.date;
+        }
+        a.provenEvidence += positive;
+        if (positive > 0) a.proven++;
+      }
+      byAuthor.set(author, a);
+    }
+  }
+  // Most-proven first, then most material — the order a "read more by…" caller wants; ties break
+  // on name so the list is stable across calls.
+  return [...byAuthor.values()].sort((x, y) =>
+    y.provenEvidence - x.provenEvidence || y.pages - x.pages || (x.author < y.author ? -1 : 1));
+}

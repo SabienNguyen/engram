@@ -3,7 +3,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-  reviewDue, unmetPrereqs, frontier, nextLessons, analogies, workingSet,
+  reviewDue, unmetPrereqs, frontier, nextLessons, analogies, workingSet, authorAffinity,
 } from '../src/queries/queries.js';
 import { buildEdges } from '../src/graph/graph.js';
 import { EmbeddingIndex } from '../src/embeddings/index.js';
@@ -181,5 +181,42 @@ describe('workingSet', () => {
     const a = JSON.stringify(workingSet(state, pages, edges, NOW, 20));
     const b = JSON.stringify(workingSet(state, pages, edges, NOW, 20));
     expect(b).toBe(a);
+  });
+});
+
+describe('authorAffinity — who the learner has actually learned from', () => {
+  const page = (slug: string, authors: string[]) =>
+    parsePage(slug, '', `---\ntitle: ${slug}\nauthors: ${JSON.stringify(authors)}\n---\nbody`);
+  const ev = (kind: string, date: string) => ({ kind, date, note: '' } as any);
+  const byAuthorPages = new Map<string, Page>([
+    ['a1', page('a1', ['Strogatz'])],
+    ['a2', page('a2', ['Strogatz'])],
+    ['b1', page('b1', ['Sanderson'])],
+    ['c1', page('c1', [])], // no credited author — cannot appear in the report
+  ]);
+
+  it('counts proven evidence and struggles per author, most-proven first', () => {
+    const state = {
+      a1: { level: 'practicing', evidence: [ev('applied-correctly', '2026-07-01'), ev('struggled', '2026-06-01')], misconceptions: [] },
+      a2: { level: 'exposed', evidence: [ev('explained-correctly', '2026-07-05')], misconceptions: [] },
+      b1: { level: 'exposed', evidence: [ev('struggled', '2026-07-02')], misconceptions: [] },
+    } as unknown as StudentState;
+    const out = authorAffinity(state, byAuthorPages);
+    expect(out.map((a) => a.author)).toEqual(['Strogatz', 'Sanderson']); // proven volume orders
+    const [strogatz, sanderson] = out;
+    expect(strogatz).toMatchObject({ pages: 2, proven: 2, provenEvidence: 2, struggles: 1, lastEvidence: '2026-07-05' });
+    // An author whose material is NOT landing still appears — the struggle is the point.
+    expect(sanderson).toMatchObject({ pages: 1, proven: 0, provenEvidence: 0, struggles: 1 });
+  });
+
+  it('an author with pages but no evidence reports zeros rather than vanishing', () => {
+    const out = authorAffinity({} as StudentState, byAuthorPages);
+    expect(out.map((a) => a.author).sort()).toEqual(['Sanderson', 'Strogatz']);
+    expect(out.every((a) => a.provenEvidence === 0 && a.lastEvidence === null)).toBe(true);
+  });
+
+  it('is a fact about material in the vault — an uncredited page credits nobody', () => {
+    const out = authorAffinity({} as StudentState, new Map([['c1', page('c1', [])]]));
+    expect(out).toEqual([]);
   });
 });

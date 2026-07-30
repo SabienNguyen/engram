@@ -119,6 +119,7 @@ export function registerGraphTools(server: McpServer, ctx: Ctx): void {
         difficulty: z.number().min(1).max(5).optional(),
         status: z.enum(['stub', 'draft', 'solid']).optional(),
         sources: z.array(z.string()).optional(),
+        authors: z.array(z.string()).optional(),
       },
     },
     async (rawArgs) => {
@@ -156,6 +157,8 @@ export function registerGraphTools(server: McpServer, ctx: Ctx): void {
         difficulty: args.difficulty ?? old?.meta.difficulty ?? 3,
         status: args.status ?? (old && old.meta.status !== 'stub' ? old.meta.status : 'draft'),
         sources: args.sources ?? old?.meta.sources ?? [],
+        // Names, never slugified — see PageMeta.authors.
+        authors: (args.authors ?? old?.meta.authors ?? []).map((a) => a.trim()).filter(Boolean),
       };
       ctx.store.writePage(args.slug, meta, args.body, args.domain ?? old?.domain ?? '');
       const snap = await ctx.snapshot();

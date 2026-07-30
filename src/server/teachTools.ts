@@ -3,7 +3,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { Ctx, json, err } from './context.js';
 import { applyEvidence, decayDaysLeft, effectiveLevel } from '../student/model.js';
 import { LEVELS } from '../types.js';
-import { analogies, nextLessons, workingSet } from '../queries/queries.js';
+import { analogies, authorAffinity, nextLessons, workingSet } from '../queries/queries.js';
 import { slugify } from '../vault/parsePage.js';
 
 function requireSlug(raw: string, field: string): string | { error: string } {
@@ -223,6 +223,23 @@ export function registerTeachTools(server: McpServer, ctx: Ctx): void {
         generatedAt: now.toISOString(),
         members: workingSet(ctx.store.readStudent(student), pages, edges, now, cap),
       });
+    }
+  );
+
+  server.registerTool(
+    'author_affinity',
+    {
+      description:
+        'Which authors the student has actually learned from: per author, how many pages in the '
+        + "vault came from their material and how much proven evidence and struggle those pages "
+        + 'carry. Derived from evidence, never from a stated preference — use it to answer "who '
+        + 'should I read next" with the people whose material has already worked for this student, '
+        + 'and to notice an author whose material is not landing. Deterministic and read-only.',
+      inputSchema: { student: z.string() },
+    },
+    async ({ student }) => {
+      const { pages } = await ctx.snapshot();
+      return json({ authors: authorAffinity(ctx.store.readStudent(student), pages) });
     }
   );
 }

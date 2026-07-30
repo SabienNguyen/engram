@@ -36,11 +36,11 @@ afterAll(async () => {
 });
 
 describe('engram over stdio', () => {
-  it('lists all 15 tools', async () => {
+  it('lists all 16 tools', async () => {
     const { tools } = await client.listTools();
     const names = tools.map((t) => t.name).sort();
     expect(names).toEqual([
-      'compile_source', 'create_path', 'find_analogies', 'get_student_state',
+      'author_affinity', 'compile_source', 'create_path', 'find_analogies', 'get_student_state',
       'link_pages', 'list_pages', 'list_paths', 'next_lessons', 'read_page', 'read_path',
       'record_evidence', 'search', 'unlink_pages', 'working_set', 'write_page',
     ]);

@@ -89,3 +89,38 @@ describe('parsePage', () => {
     expect(again.inlineLinks).toEqual(p.inlineLinks);
   });
 });
+
+describe('parsePage — authors', () => {
+  const withAuthors = (frontmatter: string) =>
+    parsePage('p', '', `---\ntitle: T\n${frontmatter}\n---\nbody`);
+
+  it('keeps author names verbatim — a person is not a slug', () => {
+    const p = withAuthors('authors: ["Grant Sanderson", "Steven Strogatz"]');
+    expect(p.meta.authors).toEqual(['Grant Sanderson', 'Steven Strogatz']);
+    expect(p.warnings).toEqual([]);
+  });
+
+  it('reads a single unbracketed name as one author (the obvious hand-edit)', () => {
+    const p = withAuthors('authors: Grant Sanderson');
+    expect(p.meta.authors).toEqual(['Grant Sanderson']);
+    expect(p.warnings).toEqual([]);
+  });
+
+  it('absent authors is an empty list, not a warning', () => {
+    const p = parsePage('p', '', '---\ntitle: T\n---\nbody');
+    expect(p.meta.authors).toEqual([]);
+    expect(p.warnings).toEqual([]);
+  });
+
+  it('a non-string-array authors warns and degrades to empty', () => {
+    const p = withAuthors('authors: 42');
+    expect(p.meta.authors).toEqual([]);
+    expect(p.warnings).toContain('invalid authors: expected string array');
+  });
+
+  it('round-trips through serializePage', () => {
+    const p = withAuthors('authors: ["Ada Lovelace"]');
+    const again = parsePage('p', '', serializePage(p.meta, p.body));
+    expect(again.meta.authors).toEqual(['Ada Lovelace']);
+  });
+});
