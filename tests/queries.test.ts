@@ -3,8 +3,9 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-  reviewDue, unmetPrereqs, frontier, nextLessons, analogies,
+  reviewDue, unmetPrereqs, frontier, nextLessons, analogies, workingSet,
 } from '../src/queries/queries.js';
+import { buildEdges } from '../src/graph/graph.js';
 import { EmbeddingIndex } from '../src/embeddings/index.js';
 import { FakeProvider } from '../src/embeddings/provider.js';
 import { parsePage } from '../src/vault/parsePage.js';
@@ -21,6 +22,18 @@ const pages = new Map<string, Page>([
 ]);
 
 const mastery = (level: any, last: string) => ({ level, evidence: [], misconceptions: [], last_reinforced: last });
+
+// Fixture edges: chain-rule -> derivatives (prereq), backprop -> chain-rule (prereq); kelly isolated.
+const edges = buildEdges(pages);
+
+// Mastery WITH evidence, which workingSet seeds require. Single-date entries keep the stability
+// factor at 1, so decay expectations stay on the base windows.
+const evd = (level: any, dates: string[], misconceptions: string[] = []) => ({
+  level,
+  evidence: dates.map((date) => ({ date, kind: 'applied-correctly' as const, note: 'x' })),
+  misconceptions,
+  last_reinforced: dates[dates.length - 1],
+});
 
 let index: EmbeddingIndex;
 beforeAll(async () => {
@@ -85,5 +98,88 @@ describe('queries', () => {
     expect(a.length).toBeGreaterThan(0);
     expect(a.every((x) => ['derivatives', 'chain-rule'].includes(x.slug))).toBe(true);
     expect(analogies('backprop', state, pages, null, NOW)).toEqual([]);
+  });
+});
+
+describe('workingSet', () => {
+  it('ranks seeds by freshest evidence, slug ascending on ties, and skips slugs with no page', () => {
+    const state: StudentState = {
+      derivatives: evd('practicing', ['2026-07-01']),
+      kelly: evd('practicing', ['2026-07-05']),
+      'chain-rule': evd('practicing', ['2026-06-01', '2026-07-05']), // max date wins, not the first
+      backprop: evd('practicing', ['2026-06-01']),
+      ghost: evd('practicing', ['2026-07-09']), // no such page — never a seed
+    };
+    const ws = workingSet(state, pages, edges, NOW, 8);
+    expect(ws.filter((m) => m.why === 'recent-evidence').map((m) => m.slug))
+      .toEqual(['chain-rule', 'kelly', 'derivatives', 'backprop']);
+    expect(ws.map((m) => m.slug)).not.toContain('ghost');
+  });
+
+  it('caps seeds at ceil(k/2) and the whole set at k', () => {
+    const state: StudentState = {
+      derivatives: evd('practicing', ['2026-07-01']),
+      kelly: evd('practicing', ['2026-07-05']),
+      'chain-rule': evd('practicing', ['2026-07-05']),
+      backprop: evd('practicing', ['2026-06-01']),
+    };
+    const ws = workingSet(state, pages, edges, NOW, 3);
+    expect(ws).toHaveLength(3);
+    // ceil(3/2) = 2 seeds (chain-rule, kelly); the one remaining slot goes to the top seed's
+    // first neighbor in slug order.
+    expect(ws.map((m) => [m.slug, m.why])).toEqual([
+      ['chain-rule', 'recent-evidence'],
+      ['kelly', 'recent-evidence'],
+      ['backprop', 'neighbor:chain-rule'],
+    ]);
+  });
+
+  it('expands 1 hop over BOTH edge directions, tags each neighbor with its seed, slug ascending', () => {
+    const state: StudentState = { 'chain-rule': evd('practicing', ['2026-07-01']) };
+    const ws = workingSet(state, pages, edges, NOW, 10);
+    // backprop reaches chain-rule via an INBOUND prereq edge, derivatives via an outbound one.
+    expect(ws.map((m) => [m.slug, m.why])).toEqual([
+      ['chain-rule', 'recent-evidence'],
+      ['backprop', 'neighbor:chain-rule'],
+      ['derivatives', 'neighbor:chain-rule'],
+    ]);
+    // A pulled-in neighbor the student never touched reads as exactly that.
+    expect(ws[1]).toMatchObject({ level: 'unseen', effective: 'unseen', lastEvidence: null, due: false });
+  });
+
+  it('flags decayed pages as due, fresh ones not', () => {
+    const state: StudentState = {
+      derivatives: evd('mastered', ['2026-05-01']), // 70d stale > 45d window -> practicing
+      kelly: evd('practicing', ['2026-07-05']),
+    };
+    const bySlug = Object.fromEntries(workingSet(state, pages, edges, NOW, 4).map((m) => [m.slug, m]));
+    expect(bySlug.derivatives).toMatchObject({ level: 'mastered', effective: 'practicing', due: true });
+    expect(bySlug.kelly.due).toBe(false);
+  });
+
+  it('includes the misconception count only when non-zero', () => {
+    const state: StudentState = {
+      derivatives: evd('practicing', ['2026-07-01'], ['thinks dy/dx is a fraction']),
+      kelly: evd('practicing', ['2026-07-01']),
+    };
+    const bySlug = Object.fromEntries(workingSet(state, pages, edges, NOW, 4).map((m) => [m.slug, m]));
+    expect(bySlug.derivatives.misconceptions).toBe(1);
+    expect(bySlug.kelly).not.toHaveProperty('misconceptions');
+  });
+
+  it('returns empty members for a student with no evidence — mastery rows alone do not seed', () => {
+    expect(workingSet({}, pages, edges, NOW, 20)).toEqual([]);
+    expect(workingSet({ derivatives: mastery('exposed', '2026-07-01') }, pages, edges, NOW, 20)).toEqual([]);
+  });
+
+  it('is deterministic: two calls, byte-identical JSON', () => {
+    const state: StudentState = {
+      derivatives: evd('mastered', ['2026-05-01']),
+      'chain-rule': evd('practicing', ['2026-07-05'], ['x']),
+      kelly: evd('practicing', ['2026-07-05']),
+    };
+    const a = JSON.stringify(workingSet(state, pages, edges, NOW, 20));
+    const b = JSON.stringify(workingSet(state, pages, edges, NOW, 20));
+    expect(b).toBe(a);
   });
 });

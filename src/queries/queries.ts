@@ -1,6 +1,8 @@
 import { daysOverdue, effectiveLevel, isKnown } from '../student/model.js';
 import type { EmbeddingIndex } from '../embeddings/index.js';
-import type { LessonSuggestion, Page, StudentState } from '../types.js';
+import type {
+  Edge, LessonSuggestion, Page, PageMastery, StudentState, WorkingSetMember,
+} from '../types.js';
 
 function title(pages: Map<string, Page>, slug: string): string {
   return pages.get(slug)?.meta.title ?? slug;
@@ -88,6 +90,58 @@ export function nextLessons(
   ];
   const seen = new Set<string>();
   return combined.filter((s) => !seen.has(s.slug) && seen.add(s.slug)).slice(0, k);
+}
+
+/** The recently-exercised region of the vault: the ceil(k/2) evidenced pages with the freshest
+ *  evidence (tiebreak: slug asc), then their 1-hop graph neighbors — any edge type, both
+ *  directions — filling the remaining slots in seed-rank order, each tagged with the seed that
+ *  pulled it in. Pure function of (state, pages, edges, now): no embeddings, no randomness, so
+ *  identical inputs give byte-identical output — what lets a harness consult it before any full
+ *  search and cache the answer. */
+export function workingSet(
+  state: StudentState, pages: Map<string, Page>, edges: Edge[], now: Date, k: number
+): WorkingSetMember[] {
+  // Evidence is appended chronologically by applyEvidence, but take the max rather than the last
+  // entry so a hand-edited or merged student file still ranks correctly.
+  const latest = (m: PageMastery) => m.evidence.reduce((a, e) => (e.date > a ? e.date : a), '');
+  const member = (slug: string, why: WorkingSetMember['why']): WorkingSetMember => {
+    const m = state[slug];
+    const level = m?.level ?? 'unseen';
+    const effective = effectiveLevel(m, now);
+    const mis = m?.misconceptions.length ?? 0;
+    return {
+      slug, title: title(pages, slug), level, effective,
+      lastEvidence: m && m.evidence.length ? latest(m) : null,
+      due: effective !== level, why,
+      ...(mis > 0 ? { misconceptions: mis } : {}),
+    };
+  };
+  const seeds = Object.entries(state)
+    .filter(([slug, m]) => pages.has(slug) && m.evidence.length > 0)
+    .map(([slug, m]) => ({ slug, last: latest(m) }))
+    // Plain string comparison, not localeCompare: ISO dates order lexicographically and slug order
+    // must not depend on the host locale. Slugs are unique, so no equal case.
+    .sort((a, b) => (a.last === b.last ? (a.slug < b.slug ? -1 : 1) : a.last < b.last ? 1 : -1))
+    .slice(0, Math.ceil(k / 2));
+  const out = seeds.map((s) => member(s.slug, 'recent-evidence'));
+  const taken = new Set(seeds.map((s) => s.slug));
+  for (const s of seeds) {
+    if (out.length >= k) break;
+    const near = new Set<string>();
+    for (const e of edges) {
+      if (e.src === s.slug) near.add(e.dst);
+      else if (e.dst === s.slug) near.add(e.src);
+    }
+    for (const n of [...near].sort()) {
+      if (out.length >= k) break;
+      // A dangling edge target (frontmatter naming a page never written) has no title or body to
+      // teach from — skip it rather than emit a member the caller cannot read.
+      if (taken.has(n) || !pages.has(n)) continue;
+      taken.add(n);
+      out.push(member(n, `neighbor:${s.slug}`));
+    }
+  }
+  return out;
 }
 
 export function analogies(

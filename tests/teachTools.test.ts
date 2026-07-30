@@ -107,6 +107,18 @@ describe('teach tools', () => {
     expect((await call('next_lessons', { student: 'sabien', goal: 'no such topic' })).isError).toBe(true);
   });
 
+  it('working_set answers over the wire: evidence seeds first, then tagged 1-hop neighbors', async () => {
+    await call('record_evidence', { student: 'sabien', slug: 'derivatives', kind: 'explained-correctly', note: 'a' });
+    const { data } = await call('working_set', { student: 'sabien' });
+    expect(data.generatedAt).toBeDefined();
+    // chain-rule reaches derivatives via its prereq edge — the INBOUND direction from the seed.
+    expect(data.members.map((m: any) => [m.slug, m.why])).toEqual([
+      ['derivatives', 'recent-evidence'],
+      ['chain-rule', 'neighbor:derivatives'],
+    ]);
+    expect((await call('working_set', { student: 'nobody' })).data.members).toEqual([]);
+  });
+
   it('find_analogies returns known neighbors', async () => {
     await call('record_evidence', { student: 'sabien', slug: 'derivatives', kind: 'explained-correctly', note: 'a' });
     await call('record_evidence', { student: 'sabien', slug: 'derivatives', kind: 'applied-correctly', note: 'b' });
