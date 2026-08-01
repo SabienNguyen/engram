@@ -55,6 +55,32 @@ export class EmbeddingIndex {
     }
   }
 
+  /** Embedding in progress, if any — so overlapping callers coalesce onto one run instead of
+   *  each firing a duplicate pass over the same stale pages. */
+  private running: Promise<void> | null = null;
+
+  /**
+   * Bring the index up to date WITHOUT making the caller wait.
+   *
+   * A freshly compiled 273-page vault took over five minutes to answer its first question, because
+   * the snapshot awaited a full sync and the ollama provider embeds one page per HTTP call. Search
+   * is lexical-first and the index only augments it, so that wait bought nothing: it just looked
+   * like a hung tutor. Deletions are pruned synchronously (free, and keeps the index honest);
+   * embedding runs in the background and the index serves whatever it already has meanwhile.
+   */
+  startSync(pages: Map<string, Page>): void {
+    if (this.running) return;
+    this.running = this.sync(pages)
+      .catch((e) => { console.error('[embeddings] background sync failed:', (e as Error).message); })
+      .finally(() => { this.running = null; });
+  }
+
+  /** Await any in-flight background sync — for tests and for callers that genuinely need the
+   *  index complete (nothing in the request path should). */
+  async settled(): Promise<void> {
+    await this.running;
+  }
+
   async sync(pages: Map<string, Page>): Promise<void> {
     const wanted = new Map<string, string>(); // slug -> hash
     for (const p of pages.values()) {

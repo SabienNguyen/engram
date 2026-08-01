@@ -6,6 +6,7 @@ import { FakeProvider, getProvider } from '../src/embeddings/provider.js';
 import { EmbeddingIndex, cosine } from '../src/embeddings/index.js';
 import { parsePage } from '../src/vault/parsePage.js';
 import type { Page } from '../src/types.js';
+import type { EmbeddingProvider } from '../src/embeddings/provider.js';
 
 const pages = new Map<string, Page>([
   ['gradient-descent', parsePage('gradient-descent', '', 'iterative optimization stepping along gradients')],
@@ -69,5 +70,55 @@ describe('embeddings', () => {
     await idx.sync(pages);
     // The stale 'x' entry is gone (rebuilt from the real pages), and search works.
     expect(idx.similarTo('gradient-descent', 1)[0].slug).toBe('kelly-criterion');
+  });
+});
+
+/**
+ * Search must never wait on embedding. A freshly compiled 273-page PyTorch vault took OVER 300
+ * SECONDS to answer its first question, because Ctx.snapshot() awaited a full sync and the ollama
+ * provider embeds one page per HTTP call. The learner saw "tutor is working…" for five minutes,
+ * and anything they typed meanwhile killed the pending block. The same query with a warm index
+ * takes 4s. Search is lexical-first — the index only AUGMENTS it — so blocking on embedding buys
+ * nothing at all.
+ */
+describe('startSync does not block', () => {
+  it('returns immediately and fills the index afterwards', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'emb-bg-'));
+    let embedded = 0;
+    const slow: EmbeddingProvider = {
+      name: 'slow',
+      async embed(texts) {
+        await new Promise((r) => setTimeout(r, 50));
+        embedded += texts.length;
+        return texts.map(() => [1, 0, 0]);
+      },
+    };
+    const idx = new EmbeddingIndex(dir, slow);
+    const pages = new Map([['a', parsePage('a', '', 'alpha body text')], ['b', parsePage('b', '', 'beta body text')]]);
+
+    const t0 = Date.now();
+    idx.startSync(pages);
+    const elapsed = Date.now() - t0;
+    expect(elapsed).toBeLessThan(25);   // did not wait for the 50ms embed
+    expect(embedded).toBe(0);
+
+    await idx.settled();               // the work still happens
+    expect(embedded).toBe(2);
+  });
+
+  it('coalesces overlapping syncs instead of embedding twice', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'emb-bg2-'));
+    let calls = 0;
+    const p: EmbeddingProvider = {
+      name: 'count',
+      async embed(texts) { calls += 1; await new Promise((r) => setTimeout(r, 30)); return texts.map(() => [1, 0, 0]); },
+    };
+    const idx = new EmbeddingIndex(dir, p);
+    const pages = new Map([['a', parsePage('a', '', 'alpha body text')]]);
+    idx.startSync(pages);
+    idx.startSync(pages);
+    idx.startSync(pages);
+    await idx.settled();
+    expect(calls).toBe(1);
   });
 });
