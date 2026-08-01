@@ -145,7 +145,19 @@ export function applyEvidence(
     const i = misconceptions.findIndex((m) => m.toLowerCase().includes(needle) || needle.includes(m.toLowerCase()));
     if (i >= 0) [resolvedText] = misconceptions.splice(i, 1);
   }
-  if (misconception) misconceptions = [...misconceptions, misconception];
+  // Same matching the resolve path above uses, for the same reason: the tutor is quoting a
+  // confusion it may not have verbatim, so "already recorded" cannot mean byte-equal. A learner
+  // who voices one wrong belief across several sittings otherwise collects identical ⚠ entries —
+  // seen live, four copies of one sentence — which the graph marker, the page panel and the
+  // repair queue all read, scheduling the same repair again and again. The EVIDENCE log still
+  // gets a row per voicing; only the standing list is deduped.
+  if (misconception) {
+    const needle = misconception.trim().toLowerCase();
+    const already = misconceptions.some(
+      (m) => m.toLowerCase().includes(needle) || needle.includes(m.toLowerCase()),
+    );
+    if (!already) misconceptions = [...misconceptions, misconception];
+  }
   const from = effectiveLevel(state[slug], now);
 
   let level: MasteryLevel = from;

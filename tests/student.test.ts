@@ -361,3 +361,42 @@ describe('last_reinforced semantics per evidence kind', () => {
     expect(next.bp.last_reinforced).toBe('2026-07-20');
   });
 });
+
+/**
+ * A learner who keeps voicing the same wrong belief must not accumulate identical warnings.
+ * Observed live: a PyTorch tutee said "retain_graph makes training faster by caching gradients"
+ * across a few sittings and the page ended up with FOUR byte-identical entries. That array feeds
+ * the graph's ⚠ marker, the page panel, and the session plan's repair queue, so the duplicates
+ * are visible noise AND schedule the same repair over and over. The resolve path already matches
+ * case-insensitively by substring; the add path did no matching at all.
+ */
+describe('misconceptions do not duplicate', () => {
+  const say = (state: StudentState, text: string) =>
+    applyEvidence(state, 'bp', 'misconception', text, d('2026-07-10'), text);
+
+  it('records the same misconception once, however often it is voiced', () => {
+    let state: StudentState = {};
+    state = say(state, 'retain_graph makes training faster');
+    state = say(state, 'retain_graph makes training faster');
+    state = say(state, 'RETAIN_GRAPH MAKES TRAINING FASTER');
+    expect(state.bp.misconceptions).toEqual(['retain_graph makes training faster']);
+    // Every voicing is still EVIDENCE — the record of how often they stumbled is untouched.
+    expect(state.bp.evidence).toHaveLength(3);
+  });
+
+  it('still records a genuinely different misconception', () => {
+    let state: StudentState = {};
+    state = say(state, 'retain_graph makes training faster');
+    state = say(state, 'zero_grad is called after backward');
+    expect(state.bp.misconceptions).toHaveLength(2);
+  });
+
+  it('resolving still removes it, and it can be recorded again afterwards', () => {
+    let state: StudentState = {};
+    state = say(state, 'retain_graph makes training faster');
+    state = applyEvidence(state, 'bp', 'explained-correctly', 'got it', d('2026-07-11'), undefined, 'retain_graph makes training faster');
+    expect(state.bp.misconceptions).toEqual([]);
+    state = say(state, 'retain_graph makes training faster');
+    expect(state.bp.misconceptions).toHaveLength(1);
+  });
+});
