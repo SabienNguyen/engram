@@ -400,3 +400,31 @@ describe('misconceptions do not duplicate', () => {
     expect(state.bp.misconceptions).toHaveLength(1);
   });
 });
+
+/**
+ * Dedupe on write arrived after vaults had already collected duplicates, and those carried
+ * forever — a live vault still held "retain_graph makes training faster by caching gradients"
+ * twice. Every surface reading this list shows the confusion twice and schedules its repair twice,
+ * so any write collapses the whole list rather than only checking the incoming one.
+ */
+describe('a page with legacy duplicate misconceptions heals itself', () => {
+  it('collapses duplicates already on the record when new evidence lands', () => {
+    const dup = 'retain_graph makes training faster by caching gradients';
+    const state: any = {
+      p: {
+        level: 'exposed', evidence: [], last_reinforced: '2026-01-01',
+        misconceptions: [dup, dup, 'a genuinely different confusion'],
+      },
+    };
+    const out = applyEvidence(state, 'p', 'exposed', 'a later encounter', new Date('2026-08-01'));
+    expect(out.p.misconceptions).toEqual([dup, 'a genuinely different confusion']);
+  });
+
+  it('keeps distinct confusions distinct', () => {
+    const state: any = {
+      p: { level: 'exposed', evidence: [], last_reinforced: '2026-01-01', misconceptions: ['alpha', 'beta'] },
+    };
+    const out = applyEvidence(state, 'p', 'exposed', 'x', new Date('2026-08-01'));
+    expect(out.p.misconceptions).toEqual(['alpha', 'beta']);
+  });
+});

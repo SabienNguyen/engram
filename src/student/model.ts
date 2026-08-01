@@ -158,6 +158,15 @@ export function applyEvidence(
     );
     if (!already) misconceptions = [...misconceptions, misconception];
   }
+  // Heal what the dedupe above was added too late to prevent. Dedupe on WRITE leaves a vault that
+  // already collected duplicates carrying them forever — a live vault still holds the same
+  // sentence twice — and every surface that reads this list (the graph marker, the page panel, the
+  // repair queue) shows the confusion twice and schedules its repair twice. Collapsing the whole
+  // list on any write means a page self-heals the next time it earns evidence, with no migration.
+  misconceptions = misconceptions.filter((m, i) => !misconceptions.some(
+    (other, j) => j < i
+      && (other.toLowerCase().includes(m.toLowerCase()) || m.toLowerCase().includes(other.toLowerCase())),
+  ));
   const from = effectiveLevel(state[slug], now);
 
   let level: MasteryLevel = from;
