@@ -331,6 +331,21 @@ describe('misconception resolution', () => {
     const next = applyEvidence(state, 'the-page', 'struggled', 'new trouble', now, 'new confusion', 'old confusion');
     expect(next['the-page'].misconceptions).toEqual(['new confusion']);
   });
+
+  // A whitespace-only `resolves` used to match index 0 via `''.includes('')`/`includes('')`,
+  // deleting an arbitrary misconception and logging a false repair on evidence that named nothing.
+  it('a whitespace-only resolves matches nothing — it does not delete an arbitrary entry', () => {
+    const state = withMisconceptions(['confuses A with B', 'confuses C with D']);
+    const next = applyEvidence(state, 'the-page', 'applied-correctly', 'good', now, undefined, '   ');
+    expect(next['the-page'].misconceptions).toEqual(['confuses A with B', 'confuses C with D']);
+    expect(next['the-page'].evidence.at(-1)!.resolved).toBeUndefined();
+  });
+
+  it('an empty-string resolves matches nothing', () => {
+    const state = withMisconceptions(['confuses A with B']);
+    const next = applyEvidence(state, 'the-page', 'applied-correctly', 'good', now, undefined, '');
+    expect(next['the-page'].misconceptions).toEqual(['confuses A with B']);
+  });
 });
 
 // last_reinforced drives decay, and every kind used to reset it — including 'misconception',
@@ -399,6 +414,31 @@ describe('misconceptions do not duplicate', () => {
     state = say(state, 'retain_graph makes training faster');
     expect(state.bp.misconceptions).toHaveLength(1);
   });
+
+  // Sameness is exact equality after trim + lowercase + whitespace collapse — NOT substring
+  // containment. Substring matching conflated "the same confusion, differently worded" with "one
+  // confusion contains another's words as a fragment", which silently dropped genuinely distinct
+  // misconceptions the moment one was a textual substring of the other.
+  it('does not treat one misconception as a duplicate merely because it contains another as a substring', () => {
+    let state: StudentState = {};
+    state = say(state, 'off by one');
+    state = say(state, 'off by one in the loop bound');
+    expect(state.bp.misconceptions).toEqual(['off by one', 'off by one in the loop bound']);
+  });
+
+  it('records a more specific misconception even when a shorter one is already on file', () => {
+    let state: StudentState = {};
+    state = say(state, 'sign error');
+    state = say(state, 'sign error when integrating by parts');
+    expect(state.bp.misconceptions).toEqual(['sign error', 'sign error when integrating by parts']);
+  });
+
+  it('still catches exact duplicates that differ only in case or surrounding/internal whitespace', () => {
+    let state: StudentState = {};
+    state = say(state, 'off by one');
+    state = say(state, '  OFF   by  ONE  ');
+    expect(state.bp.misconceptions).toEqual(['off by one']);
+  });
 });
 
 /**
@@ -426,5 +466,20 @@ describe('a page with legacy duplicate misconceptions heals itself', () => {
     };
     const out = applyEvidence(state, 'p', 'exposed', 'x', new Date('2026-08-01'));
     expect(out.p.misconceptions).toEqual(['alpha', 'beta']);
+  });
+
+  // The healing pass must apply the SAME exact-match sameness rule as the add path — otherwise a
+  // page could add 'sign error when integrating by parts' next to 'sign error' (no false dup on
+  // add) only to have the healing filter collapse them back down as "substrings" on the very next
+  // write.
+  it('does not collapse a legacy list whose entries merely share a substring', () => {
+    const state: any = {
+      p: {
+        level: 'exposed', evidence: [], last_reinforced: '2026-01-01',
+        misconceptions: ['off by one', 'off by one in the loop bound'],
+      },
+    };
+    const out = applyEvidence(state, 'p', 'exposed', 'a later encounter', new Date('2026-08-01'));
+    expect(out.p.misconceptions).toEqual(['off by one', 'off by one in the loop bound']);
   });
 });

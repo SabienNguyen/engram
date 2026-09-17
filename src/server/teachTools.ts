@@ -3,6 +3,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { Ctx, json, err } from './context.js';
 import { applyEvidence, decayDaysLeft, effectiveLevel } from '../student/model.js';
 import { LEVELS } from '../types.js';
+import type { StudentState } from '../types.js';
 import { analogies, authorAffinity, nextLessons, workingSet } from '../queries/queries.js';
 import { slugify } from '../vault/parsePage.js';
 
@@ -10,6 +11,20 @@ function requireSlug(raw: string, field: string): string | { error: string } {
   const s = slugify(raw);
   if (!s) return { error: `invalid ${field}: "${raw}" slugifies to empty string` };
   return s;
+}
+
+/** ctx.store.readStudent throws on a corrupt student file or a name that would escape the
+ *  students/ directory (see VaultStore.fileWithin/readStudent). Every tool below reads student
+ *  state before doing anything else, so an unguarded call rejects the whole MCP request instead
+ *  of reporting the same `err(...)` shape every other failure in this file uses — a caller can't
+ *  distinguish "no such student" (an empty state, handled fine) from "this student's file is
+ *  broken" without this wrapper naming it explicitly. */
+function readStudent(ctx: Ctx, name: string): { state: StudentState } | { error: string } {
+  try {
+    return { state: ctx.store.readStudent(name) };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : String(e) };
+  }
 }
 
 export const COMPILE_CONTRACT = `Extract 3-10 atomic concepts from this source. For each concept call write_page:
@@ -84,7 +99,9 @@ export function registerTeachTools(server: McpServer, ctx: Ctx): void {
       inputSchema: { student: z.string(), slug: z.string().optional() },
     },
     async ({ student, slug: rawSlug }) => {
-      const state = ctx.store.readStudent(student);
+      const studentResult = readStudent(ctx, student);
+      if ('error' in studentResult) return err(studentResult.error);
+      const { state } = studentResult;
       const now = new Date();
       const out: Record<string, unknown> = {};
       for (const [slug, m] of Object.entries(state)) {
@@ -135,9 +152,9 @@ export function registerTeachTools(server: McpServer, ctx: Ctx): void {
         + 'When the student demonstrably corrects a previously recorded misconception, pass '
         + '`resolves` quoting it — otherwise it stays active and keeps returning in review plans.',
       inputSchema: {
-        student: z.string(), slug: z.string(), kind: z.enum(KINDS), note: z.string(),
-        misconception: z.string().optional(),
-        resolves: z.string().optional(),
+        student: z.string(), slug: z.string(), kind: z.enum(KINDS), note: z.string().trim().min(1),
+        misconception: z.string().trim().min(1).optional(),
+        resolves: z.string().trim().min(1).optional(),
       },
     },
     async ({ student, slug: rawSlug, kind, note, misconception, resolves }) => {
@@ -146,8 +163,10 @@ export function registerTeachTools(server: McpServer, ctx: Ctx): void {
       const slug = slugResult;
       const { pages } = await ctx.snapshot();
       if (!pages.has(slug)) return err(`page not found: ${slug}`);
+      const studentResult = readStudent(ctx, student);
+      if ('error' in studentResult) return err(studentResult.error);
       const now = new Date();
-      const next = applyEvidence(ctx.store.readStudent(student), slug, kind, note, now, misconception, resolves);
+      const next = applyEvidence(studentResult.state, slug, kind, note, now, misconception, resolves);
       ctx.store.writeStudent(student, next);
       return json({
         slug,
@@ -178,8 +197,10 @@ export function registerTeachTools(server: McpServer, ctx: Ctx): void {
         goal = goalResult;
         if (!snap.pages.has(goal)) return err(`page not found: ${goal}`);
       }
+      const studentResult = readStudent(ctx, student);
+      if ('error' in studentResult) return err(studentResult.error);
       const out = nextLessons(
-        ctx.store.readStudent(student), snap.pages, snap.index, new Date(), goal, k ?? 3
+        studentResult.state, snap.pages, snap.index, new Date(), goal, k ?? 3
       );
       return json(snap.embeddingsError ? { lessons: out, note: snap.embeddingsError } : { lessons: out });
     }
@@ -197,8 +218,10 @@ export function registerTeachTools(server: McpServer, ctx: Ctx): void {
       const slug = slugResult;
       const snap = await ctx.snapshot();
       if (!snap.pages.has(slug)) return err(`page not found: ${slug}`);
+      const studentResult = readStudent(ctx, student);
+      if ('error' in studentResult) return err(studentResult.error);
       const out = analogies(
-        slug, ctx.store.readStudent(student), snap.pages, snap.index, new Date(), k ?? 3
+        slug, studentResult.state, snap.pages, snap.index, new Date(), k ?? 3
       );
       return json({ analogies: out, ...(snap.embeddingsError ? { note: snap.embeddingsError } : {}) });
     }
@@ -219,9 +242,11 @@ export function registerTeachTools(server: McpServer, ctx: Ctx): void {
       // Cap 50: this is the cheap pre-search view; a caller wanting the whole vault wants
       // list_pages. Floor at 0 so a negative k cannot reach slice() and drop seeds from the end.
       const cap = Math.max(0, Math.min(Math.floor(k ?? 20), 50));
+      const studentResult = readStudent(ctx, student);
+      if ('error' in studentResult) return err(studentResult.error);
       return json({
         generatedAt: now.toISOString(),
-        members: workingSet(ctx.store.readStudent(student), pages, edges, now, cap),
+        members: workingSet(studentResult.state, pages, edges, now, cap),
       });
     }
   );
@@ -239,7 +264,9 @@ export function registerTeachTools(server: McpServer, ctx: Ctx): void {
     },
     async ({ student }) => {
       const { pages } = await ctx.snapshot();
-      return json({ authors: authorAffinity(ctx.store.readStudent(student), pages) });
+      const studentResult = readStudent(ctx, student);
+      if ('error' in studentResult) return err(studentResult.error);
+      return json({ authors: authorAffinity(studentResult.state, pages) });
     }
   );
 }

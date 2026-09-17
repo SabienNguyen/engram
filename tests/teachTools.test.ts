@@ -11,6 +11,7 @@ import { registerTeachTools } from '../src/server/teachTools.js';
 import { FakeProvider } from '../src/embeddings/provider.js';
 
 let client: Client;
+let root: string;
 
 async function call(name: string, args: Record<string, unknown>) {
   const res = await client.callTool({ name, arguments: args });
@@ -19,9 +20,10 @@ async function call(name: string, args: Record<string, unknown>) {
 }
 
 beforeEach(async () => {
-  const root = mkdtempSync(join(tmpdir(), 'lw-teach-'));
+  root = mkdtempSync(join(tmpdir(), 'lw-teach-'));
   mkdirSync(join(root, 'pages'), { recursive: true });
   mkdirSync(join(root, 'raw'), { recursive: true });
+  mkdirSync(join(root, 'students'), { recursive: true });
   writeFileSync(join(root, 'pages', 'derivatives.md'), '---\ntitle: Derivatives\ndifficulty: 1\n---\nrates of change');
   writeFileSync(join(root, 'pages', 'chain-rule.md'), '---\ntitle: Chain Rule\nprereqs: [derivatives]\ndifficulty: 2\n---\ncomposed derivatives');
   writeFileSync(join(root, 'raw', 'lecture.md'), 'Today we cover the chain rule and gradients.');
@@ -124,5 +126,22 @@ describe('teach tools', () => {
     await call('record_evidence', { student: 'sabien', slug: 'derivatives', kind: 'applied-correctly', note: 'b' });
     const { data } = await call('find_analogies', { student: 'sabien', slug: 'chain-rule' });
     expect(data.analogies.map((a: any) => a.slug)).toEqual(['derivatives']);
+  });
+
+  // A corrupt student file (bad JSON, or a hand-edited traversal name that slipped past an older
+  // client) must fail the same way every other bad-input case in this file does: an error result
+  // reaches the caller, not an unhandled rejection at the protocol level.
+  it('get_student_state on a corrupt student file returns an error result, not a thrown rejection', async () => {
+    writeFileSync(join(root, 'students', 'broken.json'), '{ this is not valid json');
+    const res = await call('get_student_state', { student: 'broken' });
+    expect(res.isError).toBe(true);
+    expect(res.text).toContain('broken');
+  });
+
+  it('record_evidence rejects a whitespace-only misconception instead of storing it raw', async () => {
+    const res = await call('record_evidence', {
+      student: 'sabien', slug: 'derivatives', kind: 'misconception', note: 'said something confused', misconception: '   ',
+    });
+    expect(res.isError).toBe(true);
   });
 });
