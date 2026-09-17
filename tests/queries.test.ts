@@ -79,6 +79,19 @@ describe('queries', () => {
     expect(slugs).not.toContain('derivatives'); // already known
   });
 
+  it('frontier returns k suggestions even when the index covers only some pages', () => {
+    // backprop + kelly have no vectors in this index, but chain-rule and derivatives do —
+    // similarToMany's silent truncation must not starve the frontier to below k when eligible
+    // candidates exist beyond the embedded set.
+    const state: StudentState = { derivatives: mastery('practicing', '2026-07-01') };
+    const partial = new EmbeddingIndex(mkdtempSync(join(tmpdir(), 'lw-q-partial-')), new FakeProvider());
+    const partialPages = new Map([...pages].filter(([s]) => s === 'derivatives' || s === 'chain-rule'));
+    return partial.sync(partialPages).then(() => {
+      const f = frontier(state, pages, partial, NOW, 2);
+      expect(f.map((s) => s.slug)).toEqual(['chain-rule', 'kelly']);
+    });
+  });
+
   it('nextLessons: goal mode = review + prereq gaps, deduped and capped', () => {
     const state: StudentState = { derivatives: mastery('mastered', '2026-05-01') };
     const out = nextLessons(state, pages, index, NOW, 'backprop', 3);
@@ -218,5 +231,58 @@ describe('authorAffinity — who the learner has actually learned from', () => {
   it('is a fact about material in the vault — an uncredited page credits nobody', () => {
     const out = authorAffinity({} as StudentState, new Map([['c1', page('c1', [])]]));
     expect(out).toEqual([]);
+  });
+});
+
+/**
+ * A brand-new vault contains exactly one page: the coding-ladder stub the app seeds at boot. It is
+ * practice inventory, not something the learner chose to study, and offering it as the frontier
+ * made a fresh install open with "we'll start with consuming SSE token streams, the easiest
+ * unexplored frontier in your vault" to someone who had added nothing yet.
+ */
+describe('seeded practice stubs are not the frontier', () => {
+  const seeded = (slug: string): Page => ({
+    slug,
+    domain: 'programming',
+    meta: {
+      title: 'Consuming SSE token streams',
+      prereqs: [], deepens: [], tags: [], difficulty: 3,
+      status: 'stub', sources: ['the-gap artifact stream-consumer'], authors: [],
+    },
+    body: 'x',
+    warnings: [],
+  } as unknown as Page);
+
+  const real = (slug: string): Page => ({
+    slug,
+    domain: '',
+    meta: {
+      title: slug, prereqs: [], deepens: [], tags: [], difficulty: 2,
+      status: 'solid', sources: ['https://example.com'], authors: [],
+    },
+    body: 'x',
+    warnings: [],
+  } as unknown as Page);
+
+  it('offers nothing on a vault holding only the seeded stub', () => {
+    const pages = new Map([['stream-consumer', seeded('stream-consumer')]]);
+    expect(frontier({}, pages, null, new Date('2026-08-03'), 3)).toEqual([]);
+  });
+
+  it('still offers a page the learner actually added', () => {
+    const pages = new Map([
+      ['stream-consumer', seeded('stream-consumer')],
+      ['photosynthesis', real('photosynthesis')],
+    ]);
+    const out = frontier({}, pages, null, new Date('2026-08-03'), 3);
+    expect(out.map((s) => s.slug)).toEqual(['photosynthesis']);
+  });
+
+  it('leaves a hand-written stub alone — only the machine byline marks inventory', () => {
+    const handWritten = real('half-done');
+    (handWritten.meta as { status: string }).status = 'stub';
+    const pages = new Map([['half-done', handWritten]]);
+    expect(frontier({}, pages, null, new Date('2026-08-03'), 3).map((s) => s.slug))
+      .toEqual(['half-done']);
   });
 });

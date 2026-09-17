@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import type { Page } from '../types.js';
 import type { EmbeddingProvider } from './provider.js';
 
@@ -59,6 +59,12 @@ export class EmbeddingIndex {
    *  each firing a duplicate pass over the same stale pages. */
   private running: Promise<void> | null = null;
 
+  /** The most recent background sync's failure, if the last completed attempt failed — e.g. the
+   *  ollama process is down. Cleared by the next successful sync. Ctx.snapshot() surfaces this on
+   *  the returned Snapshot so search/find_analogies can tell a learner "no semantic ranking right
+   *  now" instead of quietly degrading to lexical-only with no explanation. */
+  private lastError: string | undefined;
+
   /**
    * Bring the index up to date WITHOUT making the caller wait.
    *
@@ -71,7 +77,11 @@ export class EmbeddingIndex {
   startSync(pages: Map<string, Page>): void {
     if (this.running) return;
     this.running = this.sync(pages)
-      .catch((e) => { console.error('[embeddings] background sync failed:', (e as Error).message); })
+      .then(() => { this.lastError = undefined; })
+      .catch((e) => {
+        this.lastError = (e as Error).message;
+        console.error('[embeddings] background sync failed:', this.lastError);
+      })
       .finally(() => { this.running = null; });
   }
 
@@ -79,6 +89,33 @@ export class EmbeddingIndex {
    *  index complete (nothing in the request path should). */
   async settled(): Promise<void> {
     await this.running;
+  }
+
+  lastSyncError(): string | undefined {
+    return this.lastError;
+  }
+
+  /** Embed ONE page synchronously, waiting out any in-flight background sync first so the two
+   *  never race the same cache write. write_page's caller needs THIS page findable for proposeLinks
+   *  right now — startSync's whole-vault sync is deliberately fire-and-forget (see its comment
+   *  above), and during a bulk compile it's often already running against an OLDER page set, so
+   *  its early-return left a just-written page permanently unembedded for this call. Syncing one
+   *  page is cheap enough to actually await. */
+  async syncOne(page: Page): Promise<void> {
+    await this.running;
+    const hash = createHash('sha256').update(`${page.meta.title}\n\n${page.body}`).digest('hex');
+    if (this.data.entries[page.slug]?.hash === hash) return;
+    const [vector] = await this.provider.embed([`${page.meta.title}\n\n${page.body}`]);
+    this.data.entries[page.slug] = { hash, vector };
+    this.persist();
+  }
+
+  /** mkdir on every write, not just in the constructor: `.index` is a rebuildable cache, so it gets
+   *  deleted while the server is up (by hand, or by a test harness resetting the vault), and a
+   *  one-time mkdir turned that into ENOENT on every sync for the rest of the process. */
+  private persist(): void {
+    mkdirSync(dirname(this.file), { recursive: true });
+    writeFileSync(this.file, JSON.stringify(this.data));
   }
 
   async sync(pages: Map<string, Page>): Promise<void> {
@@ -99,7 +136,7 @@ export class EmbeddingIndex {
       );
       stale.forEach(([slug, hash], i) => (this.data.entries[slug] = { hash, vector: vectors[i] }));
     }
-    writeFileSync(this.file, JSON.stringify(this.data));
+    this.persist();
   }
 
   similarTo(slug: string, k: number, filter?: (slug: string) => boolean) {

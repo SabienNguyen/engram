@@ -34,13 +34,15 @@ export class VaultStore {
 
   /** Crash-safe write: a plain writeFileSync opens with O_TRUNC, so it empties the file BEFORE
    *  writing — a process death in that window (container reclaim, OOM kill, power loss) leaves a
-   *  truncated or empty file. For regenerable content that's a nuisance; for the student state it
-   *  is the one irreplaceable thing this vault holds, and readStudent throws on a corrupt file
-   *  rather than silently returning {}. Write a sibling temp and rename over the target: rename is
-   *  atomic on POSIX, so a reader ever sees only the intact old file or the complete new one. The
-   *  temp is a sibling (same directory, same filesystem) so the rename can't fail cross-device; a
-   *  temp left by a crash mid-write is harmless — the next write overwrites it, readers never look
-   *  at it. */
+   *  truncated or empty file. Used by every write in this store, not just the student one: a page
+   *  is regenerable, but appendReviewLog is a read-modify-truncate-write of the WHOLE file, so a
+   *  crash there doesn't lose the one new line, it loses every link's provenance ever recorded —
+   *  and readStudent already throws on a corrupt file rather than silently returning {}, so a torn
+   *  students/ write must not happen either. Write a sibling temp and rename over the target:
+   *  rename is atomic on POSIX, so a reader ever sees only the intact old file or the complete new
+   *  one. The temp is a sibling (same directory, same filesystem) so the rename can't fail
+   *  cross-device; a temp left by a crash mid-write is harmless — the next write overwrites it,
+   *  readers never look at it. */
   private atomicWrite(file: string, content: string): void {
     const tmp = `${file}.tmp`;
     writeFileSync(tmp, content);
@@ -78,7 +80,7 @@ export class VaultStore {
     const file =
       this.fileBySlug.get(slug) ??
       join(this.dir('pages', ...(domain ? domain.split('/') : [])), `${slug}.md`);
-    writeFileSync(file, serializePage(meta, body));
+    this.atomicWrite(file, serializePage(meta, body));
     this.fileBySlug.set(slug, file);
     return parsePage(slug, domain, readFileSync(file, 'utf8'));
   }
@@ -114,7 +116,9 @@ export class VaultStore {
     const f = join(this.root, 'review-log.md');
     const header = '# Review Log\n\n';
     const existing = existsSync(f) ? readFileSync(f, 'utf8').replace(header, '') : '';
-    writeFileSync(f, header + line + '\n' + existing);
+    // This is a read-modify-truncate-write of the WHOLE log, not an append of one line — a torn
+    // write here doesn't cost the new entry, it costs every link's provenance ever recorded.
+    this.atomicWrite(f, header + line + '\n' + existing);
   }
 
   readRationales(): Record<string, string> {
@@ -130,7 +134,7 @@ export class VaultStore {
   saveRationale(key: string, rationale: string): void {
     const all = this.readRationales();
     all[key] = rationale;
-    writeFileSync(join(this.dir('.index'), 'rationales.json'), JSON.stringify(all, null, 2));
+    this.atomicWrite(join(this.dir('.index'), 'rationales.json'), JSON.stringify(all, null, 2));
   }
 
   listRaw(): string[] {
@@ -169,6 +173,6 @@ export class VaultStore {
   }
 
   writePathDoc(slug: string, title: string, pages: string[], body: string): void {
-    writeFileSync(join(this.dir('paths'), `${slug}.md`), matter.stringify(body, { title, pages }));
+    this.atomicWrite(join(this.dir('paths'), `${slug}.md`), matter.stringify(body, { title, pages }));
   }
 }

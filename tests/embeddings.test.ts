@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { FakeProvider, getProvider } from '../src/embeddings/provider.js';
@@ -120,5 +120,20 @@ describe('startSync does not block', () => {
     idx.startSync(pages);
     await idx.settled();
     expect(calls).toBe(1);
+  });
+
+  // `.index` is a rebuildable cache, so deleting it is a reasonable thing for a person (or a test
+  // harness resetting a vault) to do while the server is up. The directory used to be created once,
+  // in the constructor: after that, every sync threw ENOENT and semantic search stayed off until
+  // the process restarted.
+  it('rebuilds its cache directory when it is deleted out from under a running index', async () => {
+    const dir = join(mkdtempSync(join(tmpdir(), 'lw-emb-')), '.index');
+    const idx = new EmbeddingIndex(dir, new FakeProvider());
+    await idx.sync(pages);
+    rmSync(dir, { recursive: true, force: true });
+    await idx.sync(pages);
+    await idx.syncOne(parsePage('new-page', '', 'iterative optimization again'));
+    expect(existsSync(join(dir, 'embeddings.json'))).toBe(true);
+    expect(idx.similarTo('gradient-descent', 1)[0].slug).toBeDefined();
   });
 });

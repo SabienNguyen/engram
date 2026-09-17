@@ -8,11 +8,40 @@ export function slugify(name: string): string {
   return name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 }
 
+// A single YAML-coerced element (`prereqs: [chain-rule, 2024]` reads that bare year as a number)
+// used to void the WHOLE list — the next write persisted `[]` and silently dropped every valid
+// entry with it. Keep what parses as a string, warn about what doesn't, drop only that element.
 function strArray(v: unknown, field: string, warnings: string[]): string[] {
   if (v === undefined || v === null) return [];
-  if (Array.isArray(v) && v.every((x) => typeof x === 'string')) return v.map(slugify);
-  warnings.push(`invalid ${field}: expected string array`);
-  return [];
+  if (!Array.isArray(v)) {
+    warnings.push(`invalid ${field}: expected string array`);
+    return [];
+  }
+  const valid: string[] = [];
+  const bad: unknown[] = [];
+  for (const x of v) {
+    if (typeof x === 'string') valid.push(slugify(x));
+    else bad.push(x);
+  }
+  if (bad.length > 0) {
+    warnings.push(`invalid ${field}: dropped ${bad.length} non-string element(s): ${bad.map((x) => JSON.stringify(x)).join(', ')}`);
+  }
+  return valid;
+}
+
+const KNOWN_META_KEYS = new Set([
+  'title', 'prereqs', 'deepens', 'tags', 'difficulty', 'status', 'sources', 'authors',
+]);
+
+// Everything in frontmatter this engram doesn't model — see PageMeta.extra. `undefined` (not
+// `{}`) when there's nothing extra, so a page with no extra keys serializes byte-for-byte as
+// before this existed.
+function extraFields(data: Record<string, unknown>): Record<string, unknown> | undefined {
+  const extra: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(data)) {
+    if (!KNOWN_META_KEYS.has(k)) extra[k] = v;
+  }
+  return Object.keys(extra).length > 0 ? extra : undefined;
 }
 
 // Best-effort strip of a frontmatter block when the YAML itself failed to
@@ -84,6 +113,7 @@ export function parsePage(slug: string, domain: string, raw: string): Page {
     status,
     sources: sourcesArray(data.sources, warnings),
     authors: authorsArray(data.authors, warnings),
+    extra: extraFields(data),
   };
   if (warnings.length > 0 && meta.status === 'solid') meta.status = 'draft';
 
@@ -101,5 +131,10 @@ export function parsePage(slug: string, domain: string, raw: string): Page {
 }
 
 export function serializePage(meta: PageMeta, body: string): string {
-  return matter.stringify(body, meta as unknown as Record<string, unknown>);
+  // `extra` isn't a real frontmatter key — it's a bag of the ones we don't model (see
+  // PageMeta.extra). Write those back alongside the known fields instead of losing them; spread
+  // order puts `extra` first so a same-named known field (there shouldn't be one, since
+  // extraFields excludes KNOWN_META_KEYS) always wins.
+  const { extra, ...known } = meta;
+  return matter.stringify(body, { ...extra, ...known } as Record<string, unknown>);
 }

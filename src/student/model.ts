@@ -15,6 +15,17 @@ function daysSince(iso: string, now: Date): number {
   return (now.getTime() - new Date(iso + 'T00:00:00Z').getTime()) / DAY_MS;
 }
 
+/** Sameness for misconception text: equality after trim + lowercase + internal-whitespace
+ *  collapse. Two voicings of the same confusion — different case, stray spaces — are the same
+ *  entry; one confusion that happens to contain another's words as a substring is NOT (was: any
+ *  containment either way counted as "same", which merged 'off by one' with 'off by one in the
+ *  loop bound' and dropped 'sign error when integrating by parts' as an already-known 'sign
+ *  error'). Empty/whitespace-only normalises to '', which the caller must reject before this ever
+ *  matches — see the `resolves` guard below. */
+function normalize(text: string): string {
+  return text.trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
 /** Does this page's current standing rest on a rubric verdict? True when the most recent
  *  level-raising evidence is 'rubric-passed' — i.e. nothing mechanical or explanatory has
  *  reconfirmed the page since a model's rubric judgment last held it up. */
@@ -138,34 +149,48 @@ export function applyEvidence(
   // note it may not have verbatim; removing only the first match keeps a second, similar
   // misconception alive rather than clearing both on one demonstration. Without this, a recorded
   // misconception outlives its own repair and returns in every future session plan.
+  //
+  // Guarded on a non-empty trimmed needle: `''.includes('')` is true, so an unguarded whitespace
+  // `resolves` matched misconceptions[0] on ANY call and deleted it while logging a false repair
+  // — evidence that named no misconception silently erased whichever one happened to be first.
   let misconceptions = [...prev.misconceptions];
   let resolvedText: string | undefined;
-  if (resolves) {
-    const needle = resolves.trim().toLowerCase();
-    const i = misconceptions.findIndex((m) => m.toLowerCase().includes(needle) || needle.includes(m.toLowerCase()));
+  // The entry NAMED wins over one that merely contains the words: record keeps 'sign error' and
+  // 'sign error when integrating by parts' as two beliefs, so a first-substring match here deleted
+  // whichever happened to come first and logged a repair of the wrong one. Containment stays as
+  // the fallback, because a tutor resolving a long misconception usually quotes part of it.
+  const resolveNeedle = resolves === undefined ? '' : normalize(resolves);
+  if (resolveNeedle) {
+    const exact = misconceptions.findIndex((m) => normalize(m) === resolveNeedle);
+    const i = exact >= 0 ? exact : misconceptions.findIndex((m) => {
+      const have = normalize(m);
+      return have.includes(resolveNeedle) || resolveNeedle.includes(have);
+    });
     if (i >= 0) [resolvedText] = misconceptions.splice(i, 1);
   }
-  // Same matching the resolve path above uses, for the same reason: the tutor is quoting a
-  // confusion it may not have verbatim, so "already recorded" cannot mean byte-equal. A learner
-  // who voices one wrong belief across several sittings otherwise collects identical ⚠ entries —
-  // seen live, four copies of one sentence — which the graph marker, the page panel and the
-  // repair queue all read, scheduling the same repair again and again. The EVIDENCE log still
-  // gets a row per voicing; only the standing list is deduped.
+  // Sameness here is exact equality after trim/lowercase/whitespace-collapse (see `normalize`),
+  // NOT substring containment — containment previously conflated "the same confusion, reworded"
+  // with "one confusion's words happen to appear inside another's", which silently dropped
+  // 'sign error when integrating by parts' as an already-known 'sign error'. A learner who voices
+  // one wrong belief across several sittings still must not collect identical ⚠ entries — seen
+  // live, four copies of one sentence — which the graph marker, the page panel and the repair
+  // queue all read, scheduling the same repair again and again. The EVIDENCE log still gets a row
+  // per voicing; only the standing list is deduped.
   if (misconception) {
-    const needle = misconception.trim().toLowerCase();
-    const already = misconceptions.some(
-      (m) => m.toLowerCase().includes(needle) || needle.includes(m.toLowerCase()),
-    );
+    const needle = normalize(misconception);
+    const already = misconceptions.some((m) => normalize(m) === needle);
     if (!already) misconceptions = [...misconceptions, misconception];
   }
-  // Heal what the dedupe above was added too late to prevent. Dedupe on WRITE leaves a vault that
-  // already collected duplicates carrying them forever — a live vault still holds the same
-  // sentence twice — and every surface that reads this list (the graph marker, the page panel, the
-  // repair queue) shows the confusion twice and schedules its repair twice. Collapsing the whole
-  // list on any write means a page self-heals the next time it earns evidence, with no migration.
+  // Heal what the dedupe above was added too late to prevent, using the SAME exact-match sameness
+  // rule — a healing pass that fell back to substring containment would collapse a legitimately
+  // distinct pair like 'off by one' / 'off by one in the loop bound' the moment either landed
+  // through the add path above. Dedupe on WRITE leaves a vault that already collected duplicates
+  // carrying them forever — a live vault still holds the same sentence twice — and every surface
+  // that reads this list (the graph marker, the page panel, the repair queue) shows the confusion
+  // twice and schedules its repair twice. Collapsing the whole list on any write means a page
+  // self-heals the next time it earns evidence, with no migration.
   misconceptions = misconceptions.filter((m, i) => !misconceptions.some(
-    (other, j) => j < i
-      && (other.toLowerCase().includes(m.toLowerCase()) || m.toLowerCase().includes(other.toLowerCase())),
+    (other, j) => j < i && normalize(other) === normalize(m),
   ));
   const from = effectiveLevel(state[slug], now);
 
