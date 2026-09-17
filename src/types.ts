@@ -15,6 +15,12 @@ export interface PageMeta {
    * book is a reason to read more BY THAT AUTHOR, not more about the topic — so it gets a field
    * rather than being buried in a citation string. Empty when the source credits no one. */
   authors: string[];
+  /** Frontmatter keys this engram doesn't model — Obsidian's `aliases`/`cssclasses`, a Dataview
+   * field, a hand-added key. parsePage used to keep only the eight fields above and serializePage
+   * wrote only those, so a page edited in Obsidian lost that metadata on its next engram write.
+   * Round-tripped verbatim; undefined (not `{}`) when the frontmatter carried nothing else, so a
+   * page with no extra keys serializes exactly as before. */
+  extra?: Record<string, unknown>;
 }
 
 export interface Page {

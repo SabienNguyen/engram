@@ -46,7 +46,7 @@ export function registerGraphTools(server: McpServer, ctx: Ctx): void {
       inputSchema: { query: z.string() },
     },
     async ({ query }) => {
-      const { pages, index } = await ctx.snapshot();
+      const { pages, index, embeddingsError } = await ctx.snapshot();
       const tokens = query.toLowerCase().split(/\s+/).filter(Boolean);
       const scores = new Map<string, number>();
       for (const p of pages.values()) {
@@ -67,14 +67,16 @@ export function registerGraphTools(server: McpServer, ctx: Ctx): void {
           scores.set(slug, (scores.get(slug) ?? 0) + score);
         }
       }
-      const out = [...scores.entries()]
+      const results = [...scores.entries()]
         .sort((a, b) => b[1] - a[1])
         .slice(0, 8)
         .map(([slug, score]) => {
           const p = pages.get(slug)!;
           return { slug, title: p.meta.title, status: p.meta.status, score: +score.toFixed(2) };
         });
-      return json(out);
+      // Semantic ranking silently skipped otherwise: a caller reading a lexical-only result set
+      // with no note has no way to tell "nothing matched" from "the embeddings provider is down".
+      return json(embeddingsError ? { results, note: `embeddings unavailable: ${embeddingsError}` } : { results });
     }
   );
 
@@ -122,7 +124,7 @@ export function registerGraphTools(server: McpServer, ctx: Ctx): void {
         authors: z.array(z.string()).optional(),
       },
     },
-    async (rawArgs) => {
+    async (rawArgs) => ctx.serialize(async () => {
       const slugResult = requireSlug(rawArgs.slug, 'slug');
       if (typeof slugResult !== 'string') return err(slugResult.error);
       const args = {
@@ -159,9 +161,17 @@ export function registerGraphTools(server: McpServer, ctx: Ctx): void {
         sources: args.sources ?? old?.meta.sources ?? [],
         // Names, never slugified — see PageMeta.authors.
         authors: (args.authors ?? old?.meta.authors ?? []).map((a) => a.trim()).filter(Boolean),
+        // write_page's inputSchema has no way to set this — carry the existing page's unmodeled
+        // frontmatter (Obsidian aliases, Dataview keys, …) forward rather than dropping it.
+        extra: old?.meta.extra,
       };
       ctx.store.writePage(args.slug, meta, args.body, args.domain ?? old?.domain ?? '');
-      const snap = await ctx.snapshot();
+      // Not a plain ctx.snapshot(): that starts the whole-vault background sync and returns
+      // immediately, so during a bulk compile (many write_page calls in a row) this page's own
+      // embedding was often still queued behind an OLDER in-flight sync, and proposeLinks saw no
+      // anchor for it at all. snapshotWithFreshPage waits that sync out and embeds this page
+      // directly so semantic candidates are never silently empty for the page just written.
+      const snap = await ctx.snapshotWithFreshPage(args.slug);
       const page = snap.pages.get(args.slug)!;
       return json({
         page: { slug: page.slug, domain: page.domain, meta: page.meta, warnings: page.warnings },
@@ -169,7 +179,7 @@ export function registerGraphTools(server: McpServer, ctx: Ctx): void {
         instructions: VERIFY_CONTRACT,
         graphWarnings: [...cycleWarnings, ...graphWarnings(snap.pages, snap.edges)].slice(0, 10),
       });
-    }
+    })
   );
 
   server.registerTool(
@@ -184,7 +194,7 @@ export function registerGraphTools(server: McpServer, ctx: Ctx): void {
         rationale: z.string().min(10),
       },
     },
-    async ({ src: rawSrc, dst: rawDst, type, rationale }) => {
+    async ({ src: rawSrc, dst: rawDst, type, rationale }) => ctx.serialize(async () => {
       const srcResult = requireSlug(rawSrc, 'src');
       if (typeof srcResult !== 'string') return err(srcResult.error);
       const dstResult = requireSlug(rawDst, 'dst');
@@ -211,7 +221,7 @@ export function registerGraphTools(server: McpServer, ctx: Ctx): void {
           // own exact "## Links" section is appended to; any other heading keeps a fresh section.
           const linksHeading = /^## Links[ \t]*$/m;
           const body = linksHeading.test(srcPage.body)
-            ? srcPage.body.replace(linksHeading, `## Links\n${line}`)
+            ? srcPage.body.replace(linksHeading, () => `## Links\n${line}`)
             : `${srcPage.body.trimEnd()}\n\n## Links\n${line}\n`;
           ctx.store.writePage(src, srcPage.meta, body, srcPage.domain);
         }
@@ -224,7 +234,7 @@ export function registerGraphTools(server: McpServer, ctx: Ctx): void {
       ctx.store.appendReviewLog(`- ${today} [${type}] ${src} -> ${dst} — ${rationale}`);
       ctx.store.saveRationale(`${src}->${dst}:${type}`, rationale);
       return json({ linked: { src, dst, type }, stubCreated });
-    }
+    })
   );
 
   server.registerTool(
@@ -233,7 +243,7 @@ export function registerGraphTools(server: McpServer, ctx: Ctx): void {
       description: 'Remove a prereq/deepens edge. Related links live in prose; edit via write_page.',
       inputSchema: { src: z.string(), dst: z.string(), type: z.enum(LINK_TYPES) },
     },
-    async ({ src: rawSrc, dst: rawDst, type }) => {
+    async ({ src: rawSrc, dst: rawDst, type }) => ctx.serialize(async () => {
       if (type === 'related') return err('related links live in prose — edit the body via write_page');
       const srcResult = requireSlug(rawSrc, 'src');
       if (typeof srcResult !== 'string') return err(srcResult.error);
@@ -246,9 +256,17 @@ export function registerGraphTools(server: McpServer, ctx: Ctx): void {
       if (!page) return err(`page not found: ${src}`);
       const list = type === 'prereq' ? page.meta.prereqs : page.meta.deepens;
       const i = list.indexOf(dst);
-      if (i >= 0) list.splice(i, 1);
+      if (i >= 0) {
+        // Remove EVERY occurrence: a target added under two spellings ("Chain Rule" and
+        // "chain-rule") normalises to the same slug on read, so a single splice leaves the
+        // duplicate behind — read_page and every graph query keep reporting the edge that
+        // unlink_pages just claimed to have removed.
+        while (list.indexOf(dst, i) >= 0) {
+          list.splice(list.indexOf(dst, i), 1);
+        }
+      }
       ctx.store.writePage(src, page.meta, page.body, page.domain);
       return json({ unlinked: true });
-    }
+    })
   );
 }

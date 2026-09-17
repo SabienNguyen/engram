@@ -51,6 +51,15 @@ describe('parsePage', () => {
     expect(p.body).toContain('body');
   });
 
+  it('keeps the valid strings in a partially-invalid list and warns about the rest, instead of voiding it', () => {
+    // A YAML-coerced bare year in prereqs used to void the WHOLE list — the next write persisted
+    // [] and silently dropped every prereq that was fine.
+    const p = parsePage('p', '', '---\ntitle: T\nprereqs: [chain-rule, 2024, gradient-descent]\nstatus: solid\n---\nbody');
+    expect(p.meta.prereqs).toEqual(['chain-rule', 'gradient-descent']);
+    expect(p.warnings.some((w) => w.includes('invalid prereqs') && w.includes('2024'))).toBe(true);
+    expect(p.meta.status).toBe('draft'); // a warned page can't stay solid
+  });
+
   it('strips frontmatter from body even when YAML is syntactically broken', () => {
     const p = parsePage('broken', '', '---\nprereqs: [unterminated\n---\nreal body here');
     expect(p.warnings.some((w) => w.includes('frontmatter parse error'))).toBe(true);
@@ -122,5 +131,49 @@ describe('parsePage — authors', () => {
     const p = withAuthors('authors: ["Ada Lovelace"]');
     const again = parsePage('p', '', serializePage(p.meta, p.body));
     expect(again.meta.authors).toEqual(['Ada Lovelace']);
+  });
+});
+
+describe('parsePage — unknown frontmatter keys', () => {
+  it('keeps an Obsidian aliases key across parse -> serialize -> parse', () => {
+    const md = '---\ntitle: Backpropagation\naliases: [Backprop]\n---\ngradients backwards through layers';
+    const first = parsePage('backpropagation', '', md);
+    expect(first.meta.extra).toEqual({ aliases: ['Backprop'] });
+    const serialized = serializePage(first.meta, first.body);
+    const second = parsePage('backpropagation', '', serialized);
+    expect(second.meta.extra).toEqual({ aliases: ['Backprop'] });
+    expect(second.meta).toEqual(first.meta);
+  });
+
+  it('keeps cssclasses and a Dataview-style field alongside modeled fields', () => {
+    const md = [
+      '---',
+      'title: Backpropagation',
+      'cssclasses: [wide-page]',
+      'dv-difficulty-note: revisit after exam',
+      'status: solid',
+      '---',
+      'body',
+    ].join('\n');
+    const p = parsePage('backpropagation', '', md);
+    expect(p.meta.extra).toEqual({ cssclasses: ['wide-page'], 'dv-difficulty-note': 'revisit after exam' });
+    expect(p.meta.status).toBe('solid');
+    const again = parsePage('backpropagation', '', serializePage(p.meta, p.body));
+    expect(again.meta.extra).toEqual(p.meta.extra);
+  });
+
+  it('a page with no unknown keys has extra undefined, not an empty object', () => {
+    const p = parsePage('backpropagation', '', '---\ntitle: Backpropagation\n---\nbody');
+    expect(p.meta.extra).toBeUndefined();
+  });
+
+  it('a write_page-style meta rebuild without an explicit extra drops nothing that round-trips serializePage directly', () => {
+    // serializePage itself must not require extra to be present.
+    const meta = {
+      title: 'X', prereqs: [], deepens: [], tags: [], difficulty: 3, status: 'draft' as const,
+      sources: [], authors: [],
+    };
+    const serialized = serializePage(meta, 'body');
+    expect(parsePage('x', '', serialized).meta.extra).toBeUndefined();
   });
 });
