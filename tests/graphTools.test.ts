@@ -311,3 +311,40 @@ describe('graph tools', () => {
     expect(data.proposedLinks.some((c: any) => c.dst === 'similar-topic')).toBe(true);
   }, 10_000);
 });
+
+// write_page waits for the new page's embedding so proposeLinks can see it. That wait used to
+// happen INSIDE the write queue, with no time bound and no fetch timeout on the ollama provider:
+// one stalled embedding call froze every later write_page, link_pages and unlink_pages until the
+// process restarted — while the page itself was already on disk, so the caller's timeout read as
+// a failed write.
+describe('a stalled embedding provider cannot wedge the vault', () => {
+  const stalled: EmbeddingProvider = { name: 'stalled', embed: () => new Promise(() => {}) };
+
+  async function serverWith(provider: EmbeddingProvider) {
+    const dir = mkdtempSync(join(tmpdir(), 'lw-stall-'));
+    mkdirSync(join(dir, 'pages'), { recursive: true });
+    writeFileSync(join(dir, 'pages', 'chain-rule.md'), '---\ntitle: Chain Rule\nstatus: solid\n---\nbody');
+    const server = new McpServer({ name: 'engram-test', version: '0.0.0' });
+    registerGraphTools(server, new Ctx(dir, provider, 50));
+    const [ct, st] = InMemoryTransport.createLinkedPair();
+    const c = new Client({ name: 'test-client', version: '0.0.0' });
+    await Promise.all([c.connect(ct), server.connect(st)]);
+    const callOn = async (name: string, args: Record<string, unknown>) => {
+      const res = await c.callTool({ name, arguments: args });
+      return { isError: res.isError === true, data: JSON.parse((res.content as { text: string }[])[0].text) };
+    };
+    return { dir, callOn };
+  }
+
+  it('write_page returns, says semantic proposals were unavailable, and later writes still run', async () => {
+    const { dir, callOn } = await serverWith(stalled);
+    const written = await callOn('write_page', { slug: 'backprop', title: 'Backprop', body: 'gradients', prereqs: ['chain-rule'] });
+    expect(written.isError).toBe(false);
+    expect(existsSync(join(dir, 'pages', 'backprop.md'))).toBe(true);
+    expect(written.data.note).toMatch(/embedding/i);
+    const linked = await callOn('link_pages', {
+      src: 'backprop', dst: 'chain-rule', type: 'related', rationale: 'backprop is the chain rule applied layer by layer',
+    });
+    expect(linked.isError).toBe(false);
+  }, 5_000);
+});

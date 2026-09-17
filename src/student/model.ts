@@ -155,9 +155,17 @@ export function applyEvidence(
   // — evidence that named no misconception silently erased whichever one happened to be first.
   let misconceptions = [...prev.misconceptions];
   let resolvedText: string | undefined;
-  const resolveNeedle = resolves?.trim().toLowerCase();
+  // The entry NAMED wins over one that merely contains the words: record keeps 'sign error' and
+  // 'sign error when integrating by parts' as two beliefs, so a first-substring match here deleted
+  // whichever happened to come first and logged a repair of the wrong one. Containment stays as
+  // the fallback, because a tutor resolving a long misconception usually quotes part of it.
+  const resolveNeedle = resolves === undefined ? '' : normalize(resolves);
   if (resolveNeedle) {
-    const i = misconceptions.findIndex((m) => m.toLowerCase().includes(resolveNeedle) || resolveNeedle.includes(m.toLowerCase()));
+    const exact = misconceptions.findIndex((m) => normalize(m) === resolveNeedle);
+    const i = exact >= 0 ? exact : misconceptions.findIndex((m) => {
+      const have = normalize(m);
+      return have.includes(resolveNeedle) || resolveNeedle.includes(have);
+    });
     if (i >= 0) [resolvedText] = misconceptions.splice(i, 1);
   }
   // Sameness here is exact equality after trim/lowercase/whitespace-collapse (see `normalize`),

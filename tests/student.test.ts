@@ -314,6 +314,21 @@ describe('misconception resolution', () => {
     expect(plain['the-page'].evidence.at(-1)!.resolved).toBeUndefined();
   });
 
+  // Normalized equality made 'sign error' and 'sign error when integrating by parts' coexist for
+  // the first time — and resolve, still first-substring-match, then deleted whichever came first.
+  it('resolves prefers the exactly named misconception over one that merely contains it', () => {
+    const state = withMisconceptions(['sign error when integrating by parts', 'sign error']);
+    const next = applyEvidence(state, 'the-page', 'applied-correctly', 'fixed', now, undefined, 'Sign error');
+    expect(next['the-page'].misconceptions).toEqual(['sign error when integrating by parts']);
+    expect(next['the-page'].evidence.at(-1)!.resolved).toBe('sign error');
+  });
+
+  it('resolves matches through the same whitespace collapse that record dedupes by', () => {
+    const state = withMisconceptions(['sign error when integrating by parts']);
+    const next = applyEvidence(state, 'the-page', 'applied-correctly', 'fixed', now, undefined, 'sign  error   when integrating by parts');
+    expect(next['the-page'].misconceptions).toEqual([]);
+  });
+
   it('resolving one of two similar misconceptions removes only the first match', () => {
     const state = withMisconceptions(['confuses A with B', 'confuses A with B in edge cases']);
     const next = applyEvidence(state, 'the-page', 'explained-correctly', 'clear now', now, undefined, 'confuses A with B');

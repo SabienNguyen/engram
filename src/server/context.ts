@@ -17,7 +17,11 @@ export class Ctx {
   private index: EmbeddingIndex | null = null;
   private writeQueue: Promise<void> = Promise.resolve();
 
-  constructor(readonly root: string, private provider: EmbeddingProvider | null) {
+  constructor(
+    readonly root: string, private provider: EmbeddingProvider | null,
+    /** How long write_page waits for its own page to embed before proposing links without it. */
+    private freshPageTimeoutMs = 10_000,
+  ) {
     this.store = new VaultStore(root);
   }
 
@@ -53,10 +57,24 @@ export class Ctx {
     const snap = await this.snapshot();
     const page = snap.pages.get(slug);
     if (snap.index && page) {
+      // Bounded, and called OUTSIDE the write queue (see graphTools' write_page). syncOne waits out
+      // the whole-vault background sync and then calls the provider, and the ollama provider's
+      // fetch has no timeout: awaited without a bound inside the queue, one stalled embedding call
+      // froze every later vault write until restart. The embed keeps running after the deadline —
+      // only this caller stops waiting for it.
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const deadline = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`embedding the new page took over ${this.freshPageTimeoutMs}ms`)),
+          this.freshPageTimeoutMs);
+      });
       try {
-        await snap.index.syncOne(page);
+        await Promise.race([snap.index.syncOne(page), deadline]);
       } catch (e) {
-        return { ...snap, embeddingsError: (e as Error).message };
+        const embeddingsError = (e as Error).message;
+        console.error(`[embeddings] ${slug}: no semantic link proposals this call — ${embeddingsError}`);
+        return { ...snap, embeddingsError };
+      } finally {
+        clearTimeout(timer);
       }
     }
     return snap;

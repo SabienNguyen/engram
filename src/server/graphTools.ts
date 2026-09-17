@@ -124,29 +124,33 @@ export function registerGraphTools(server: McpServer, ctx: Ctx): void {
         authors: z.array(z.string()).optional(),
       },
     },
-    async (rawArgs) => ctx.serialize(async () => {
-      const slugResult = requireSlug(rawArgs.slug, 'slug');
-      if (typeof slugResult !== 'string') return err(slugResult.error);
-      const args = {
-        ...rawArgs,
-        slug: slugResult,
-        domain: rawArgs.domain !== undefined ? slugify(rawArgs.domain) : undefined,
-      };
-      const { pages, edges } = await ctx.snapshot();
-      const old = pages.get(args.slug);
-      // Slugify prereqs to slugs BEFORE the cycle check — parsePage.strArray slugifies these on
-      // read, so a prereq named in free text ("Chain Rule") would otherwise slip past
-      // wouldCreateCycle (which compares against slug-keyed edges), be stored raw, and re-read as
-      // "chain-rule" — materialising the very cycle the check rejects. old?.meta values are already
-      // slugified, so this is a no-op on the update path.
-      const incomingPrereqs = (args.prereqs ?? old?.meta.prereqs ?? []).map((p) => slugify(p));
-      const cycleWarnings: string[] = [];
-      const prereqs = incomingPrereqs.filter((p) => {
-        if (wouldCreateCycle(edges, args.slug, p)) {
-          cycleWarnings.push(`prereq edge ${args.slug} -> ${p} rejected: would create a cycle`);
-          return false;
-        }
-        return true;
+    async (rawArgs) => {
+      // Only the read-compute-write is queued. Embedding the new page and proposing links reads
+      // the vault but writes nothing, and it waits on the embedding provider — so it runs after
+      // the queue is released, where a slow provider delays this call and nothing else.
+      const written = await ctx.serialize(async () => {
+        const slugResult = requireSlug(rawArgs.slug, 'slug');
+        if (typeof slugResult !== 'string') return err(slugResult.error);
+        const args = {
+          ...rawArgs,
+          slug: slugResult,
+          domain: rawArgs.domain !== undefined ? slugify(rawArgs.domain) : undefined,
+        };
+        const { pages, edges } = await ctx.snapshot();
+        const old = pages.get(args.slug);
+        // Slugify prereqs to slugs BEFORE the cycle check — parsePage.strArray slugifies these on
+        // read, so a prereq named in free text ("Chain Rule") would otherwise slip past
+        // wouldCreateCycle (which compares against slug-keyed edges), be stored raw, and re-read as
+        // "chain-rule" — materialising the very cycle the check rejects. old?.meta values are already
+        // slugified, so this is a no-op on the update path.
+        const incomingPrereqs = (args.prereqs ?? old?.meta.prereqs ?? []).map((p) => slugify(p));
+        const cycleWarnings: string[] = [];
+        const prereqs = incomingPrereqs.filter((p) => {
+          if (wouldCreateCycle(edges, args.slug, p)) {
+            cycleWarnings.push(`prereq edge ${args.slug} -> ${p} rejected: would create a cycle`);
+            return false;
+          }
+          return true;
       });
       const meta: PageMeta = {
         title: args.title,
@@ -166,20 +170,26 @@ export function registerGraphTools(server: McpServer, ctx: Ctx): void {
         extra: old?.meta.extra,
       };
       ctx.store.writePage(args.slug, meta, args.body, args.domain ?? old?.domain ?? '');
+      return { slug: args.slug, cycleWarnings };
+      });
+      if (!('cycleWarnings' in written)) return written; // a validation error response
       // Not a plain ctx.snapshot(): that starts the whole-vault background sync and returns
       // immediately, so during a bulk compile (many write_page calls in a row) this page's own
       // embedding was often still queued behind an OLDER in-flight sync, and proposeLinks saw no
       // anchor for it at all. snapshotWithFreshPage waits that sync out and embeds this page
       // directly so semantic candidates are never silently empty for the page just written.
-      const snap = await ctx.snapshotWithFreshPage(args.slug);
-      const page = snap.pages.get(args.slug)!;
+      const snap = await ctx.snapshotWithFreshPage(written.slug);
+      const page = snap.pages.get(written.slug)!;
       return json({
         page: { slug: page.slug, domain: page.domain, meta: page.meta, warnings: page.warnings },
         proposedLinks: proposeLinks(page, snap.pages, snap.edges, snap.index),
         instructions: VERIFY_CONTRACT,
-        graphWarnings: [...cycleWarnings, ...graphWarnings(snap.pages, snap.edges)].slice(0, 10),
+        // Say so when the semantic half of proposedLinks could not be computed, rather than
+        // returning a lexical-only list that looks complete.
+        ...(snap.embeddingsError ? { note: `embeddings unavailable: ${snap.embeddingsError}` } : {}),
+        graphWarnings: [...written.cycleWarnings, ...graphWarnings(snap.pages, snap.edges)].slice(0, 10),
       });
-    })
+    }
   );
 
   server.registerTool(
