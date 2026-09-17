@@ -50,11 +50,27 @@ export function unmetPrereqs(
   }));
 }
 
+/** A page the app seeded at boot as practice INVENTORY — a coding-ladder artifact or a generated
+ *  exercise — rather than something the learner chose to study. They are stubs with a machine
+ *  byline, and they must never be offered as the next thing to learn: a brand-new vault contains
+ *  exactly one of them, so the first session of a fresh install opened with "we'll start with
+ *  consuming SSE token streams, the easiest unexplored frontier in your vault" to someone who had
+ *  added nothing yet.
+ *
+ *  Only the FRONTIER door is closed. Once a learner has evidence on a seeded page it reaches
+ *  suggestions the honest way, through the review and misconception queues.
+ */
+function seededPractice(p: Page): boolean {
+  return p.meta.status === 'stub'
+    && (p.meta.sources ?? []).some((s) => /^(the-gap artifact|generated exercise) /.test(String(s)));
+}
+
 export function frontier(
   state: StudentState, pages: Map<string, Page>, index: EmbeddingIndex | null,
   now: Date, k: number
 ): LessonSuggestion[] {
   const candidates = [...pages.values()].filter((p) => {
+    if (seededPractice(p)) return false;
     const eff = effectiveLevel(state[p.slug], now);
     if (eff !== 'unseen' && eff !== 'exposed') return false;
     return p.meta.prereqs.every(
@@ -64,11 +80,27 @@ export function frontier(
   const known = knownSlugs(state, pages, now);
   if (index && known.length) {
     const eligible = new Set(candidates.map((c) => c.slug));
-    return index
-      .similarToMany(known, k, (slug) => eligible.has(slug))
+    // similarToMany only scores slugs that HAVE a vector — pages not yet embedded (background
+    // sync still running, provider outage mid-compile, brand-new page) are silently absent, so a
+    // plain slice(0, k) would surface fewer than k suggestions even when eligible candidates
+    // exist. Top up from the difficulty-sorted remainder so the frontier never starves below k.
+    const picked = index.similarToMany(known, k, (slug) => eligible.has(slug));
+    if (picked.length < k) {
+      const have = new Set(picked.map((c) => c.slug));
+      for (const p of candidates.sort((a, b) => a.meta.difficulty - b.meta.difficulty)) {
+        if (picked.length >= k) break;
+        if (!have.has(p.slug)) {
+          picked.push({ slug: p.slug, score: 0 });
+          have.add(p.slug);
+        }
+      }
+    }
+    return picked
       .map(({ slug, score }) => ({
         slug, title: title(pages, slug), reason: 'frontier' as const,
-        detail: `near your known region (score ${score.toFixed(2)})`,
+        detail: score > 0
+          ? `near your known region (score ${score.toFixed(2)})`
+          : `easiest unexplored (difficulty ${pages.get(slug)!.meta.difficulty})`,
       }));
   }
   return candidates
