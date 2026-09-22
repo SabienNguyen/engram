@@ -1,8 +1,9 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtempSync, writeFileSync, mkdirSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { VaultStore } from '../src/vault/vaultStore.js';
+import { effectiveLevel } from '../src/student/model.js';
 
 let root: string;
 let store: VaultStore;
@@ -112,5 +113,140 @@ describe('VaultStore', () => {
 
   it('readRaw throws a clear error for missing files', () => {
     expect(() => store.readRaw('ghost.md')).toThrow(/raw file not found/);
+  });
+});
+
+describe('VaultStore — a page whose frontmatter we cannot read', () => {
+  // A tab in the YAML is the classic Obsidian hand-edit. parsePage degrades to empty meta rather
+  // than throwing (one bad page must not break every read of the vault), so the write path is the
+  // only place that can stop that emptiness being written in as truth.
+  const BROKEN =
+    '---\ntitle: Chain Rule\nprereqs: [derivatives, limits]\nsources: [raw/spivak.md]\ndifficulty: 4\nstatus: solid\nbad:\t- tabbed\n---\nd/dx of composition.\n';
+  const file = () => join(root, 'pages', 'ml', 'chain-rule.md');
+  let errors: string[];
+
+  beforeEach(() => {
+    writeFileSync(file(), BROKEN);
+    errors = [];
+    vi.spyOn(console, 'error').mockImplementation((...a: unknown[]) => { errors.push(a.join(' ')); });
+  });
+
+  afterEach(() => vi.restoreAllMocks());
+
+  it('keeps every frontmatter field through a write instead of erasing it', () => {
+    const p = store.loadPages().get('chain-rule')!;
+    expect(p.meta.prereqs).toEqual([]); // the read really did lose them — that is the hazard
+    store.writePage('chain-rule', p.meta, p.body, 'ml');
+    const after = readFileSync(file(), 'utf8');
+    expect(after).toContain('prereqs: [derivatives, limits]');
+    expect(after).toContain('sources: [raw/spivak.md]');
+    expect(after).toContain('status: solid');
+    expect(after).not.toContain('prereqs: []');
+  });
+
+  it('round-trips the file byte-for-byte when the body is unchanged', () => {
+    const p = store.loadPages().get('chain-rule')!;
+    store.writePage('chain-rule', p.meta, p.body, 'ml');
+    expect(readFileSync(file(), 'utf8')).toBe(BROKEN);
+  });
+
+  it('still writes the new body, and degrades loudly rather than silently', () => {
+    const p = store.loadPages().get('chain-rule')!;
+    const written = store.writePage('chain-rule', p.meta, 'rewritten body.\n', 'ml');
+    expect(readFileSync(file(), 'utf8')).toContain('rewritten body.');
+    // Two channels, both already used by this codebase: the page's own warnings (read_page and
+    // write_page return them) and a console.error naming the file.
+    expect(written.warnings.some((w) => w.includes('frontmatter parse error'))).toBe(true);
+    expect(errors.join('\n')).toContain('chain-rule.md');
+  });
+
+  it('reads the same on the second load — the parse failure is not cached away', () => {
+    // gray-matter caches its file object keyed by the whole input string and writes the entry
+    // BEFORE parsing, so a throwing parse poisoned the cache: the second read of the same bytes
+    // came back as a clean parse with no warning and the `---` delimiters served as body text.
+    const first = store.loadPages().get('chain-rule')!;
+    const second = store.loadPages().get('chain-rule')!;
+    expect(second.warnings).toEqual(first.warnings);
+    expect(second.body).not.toContain('---');
+  });
+
+  it('a page that parses is still managed normally', () => {
+    // The preserve path must not swallow ordinary edits — only frontmatter we could not read.
+    writeFileSync(file(), '---\ntitle: Chain Rule\nstatus: solid\n---\nbody\n');
+    const p = store.loadPages().get('chain-rule')!;
+    store.writePage('chain-rule', { ...p.meta, difficulty: 2 }, p.body, 'ml');
+    expect(readFileSync(file(), 'utf8')).toContain('difficulty: 2');
+    expect(errors).toEqual([]);
+  });
+});
+
+describe('VaultStore — a student file that is valid JSON of the wrong shape', () => {
+  let errors: string[];
+
+  beforeEach(() => {
+    mkdirSync(join(root, 'students'), { recursive: true });
+    errors = [];
+    vi.spyOn(console, 'error').mockImplementation((...a: unknown[]) => { errors.push(a.join(' ')); });
+  });
+
+  afterEach(() => vi.restoreAllMocks());
+
+  const write = (json: string) => writeFileSync(join(root, 'students', 'sabien.json'), json);
+
+  it('reads a truncated-then-repaired entry as defaults instead of throwing a bare TypeError', () => {
+    // Every student tool reads this file and then reaches into .level / .evidence.length, so an
+    // unchecked cast made one hand-edit fail all of them at once with no mention of the file.
+    write('{"chain-rule": {"level": "mastered"}}');
+    const s = store.readStudent('sabien');
+    expect(s['chain-rule'].evidence).toEqual([]);
+    expect(s['chain-rule'].misconceptions).toEqual([]);
+    expect(s['chain-rule'].level).toBe('mastered');
+    expect(errors.join('\n')).toContain('students/sabien.json');
+  });
+
+  it('never drops an entry it could not read — record_evidence writes this state straight back', () => {
+    write('{"chain-rule": 7, "limits": null}');
+    expect(Object.keys(store.readStudent('sabien')).sort()).toEqual(['chain-rule', 'limits']);
+  });
+
+  it('a repaired last_reinforced reads as the epoch, so a broken record cannot mint standing', () => {
+    write('{"chain-rule": {"level": "mastered", "evidence": [], "misconceptions": []}}');
+    const m = store.readStudent('sabien')['chain-rule'];
+    expect(m.last_reinforced).toBe('1970-01-01');
+    expect(effectiveLevel(m, new Date('2026-07-10'))).toBe('practicing'); // fully decayed, not mastered
+  });
+
+  it('an unknown level is not trusted as a level', () => {
+    write('{"chain-rule": {"level": "expert", "evidence": [], "misconceptions": [], "last_reinforced": "2026-07-10"}}');
+    expect(store.readStudent('sabien')['chain-rule'].level).toBe('unseen');
+  });
+
+  it('drops evidence entries that are not objects', () => {
+    // restsOnRubric walks evidence[i].kind; a null element there crashed it.
+    write('{"chain-rule": {"level": "exposed", "evidence": [null, {"date": "2026-07-10", "kind": "exposed", "note": "n"}], "misconceptions": [], "last_reinforced": "2026-07-10"}}');
+    expect(store.readStudent('sabien')['chain-rule'].evidence).toHaveLength(1);
+    expect(errors.join('\n')).toContain('dropped 1');
+  });
+
+  it('a JSON value that is not a mastery map at all reads as an empty student, loudly', () => {
+    write('[1, 2, 3]');
+    expect(store.readStudent('sabien')).toEqual({});
+    expect(errors.join('\n')).toContain('not a mastery map');
+  });
+
+  it('still throws on JSON that does not parse — that is corruption, not a shape we can repair', () => {
+    write('{not json');
+    expect(() => store.readStudent('sabien')).toThrow(/student file corrupt/);
+  });
+});
+
+describe('VaultStore — atomicWrite failure', () => {
+  it('leaves no .tmp sibling in the vault when the rename fails', () => {
+    // The temp lives next to the real file inside the learner's Obsidian vault; a failed write
+    // must not leave litter there for them to find. Rename onto a directory is the reachable
+    // failure — the power-loss case itself needs the machine to die.
+    mkdirSync(join(root, 'students', 'sabien.json'), { recursive: true });
+    expect(() => store.writeStudent('sabien', {})).toThrow();
+    expect(existsSync(join(root, 'students', 'sabien.json.tmp'))).toBe(false);
   });
 });

@@ -92,6 +92,17 @@ describe('queries', () => {
     });
   });
 
+  it('frontier holds back a page whose prereq names no page at all', () => {
+    // A prereq target that was never written, or that the learner deleted in Obsidian, used to
+    // count as satisfied — so next_lessons offered a page whose prerequisite nobody can study.
+    const withDangling = new Map(pages);
+    withDangling.set('dangling', parsePage('dangling', '',
+      '---\ntitle: Dangling\nprereqs: [never-written]\ndifficulty: 1\n---\nbody'));
+    const slugs = frontier({}, withDangling, null, NOW, 5).map((s) => s.slug);
+    expect(slugs).not.toContain('dangling');
+    expect(slugs).toContain('derivatives'); // pages with no prereqs are untouched
+  });
+
   it('nextLessons: goal mode = review + prereq gaps, deduped and capped', () => {
     const state: StudentState = { derivatives: mastery('mastered', '2026-05-01') };
     const out = nextLessons(state, pages, index, NOW, 'backprop', 3);
@@ -100,6 +111,51 @@ describe('queries', () => {
     expect(out.length).toBeLessThanOrEqual(3);
     const seen = new Set(out.map((s) => s.slug));
     expect(seen.size).toBe(out.length); // deduped
+  });
+
+  it('nextLessons offers the goal itself once its prereqs are met', () => {
+    // The tutor's first move is next_lessons with a goal. Returning nothing here — the one moment
+    // the right answer is obvious — read as "your goal has nothing left to teach you".
+    const state: StudentState = {
+      derivatives: mastery('mastered', '2026-07-01'),
+      'chain-rule': mastery('mastered', '2026-07-01'),
+    };
+    const out = nextLessons(state, pages, index, NOW, 'backprop', 3);
+    expect(out.map((s) => s.slug)).toEqual(['backprop']);
+    expect(out[0].reason).toBe('frontier');
+    expect(out[0].detail).toContain('prereqs met');
+  });
+
+  it('nextLessons withholds the goal while a prereq is still unmet', () => {
+    // The detail line claims the prereqs are met, so it may only be emitted when they are.
+    const out = nextLessons({}, pages, index, NOW, 'backprop', 3);
+    expect(out.map((s) => s.slug)).toEqual(['derivatives', 'chain-rule']);
+  });
+
+  // The mirror of frontier's dangling-prereq test. `gaps` can only name a prereq that HAS a page,
+  // so these two broken shapes produce an empty gaps list — and before the one-hop check, that
+  // read as "prereqs met" and the goal was offered with a detail line asserting it.
+  it('withholds the goal when a prereq names no page at all', () => {
+    const orphanGoal = new Map(pages);
+    orphanGoal.set('tensors', parsePage('tensors', '',
+      '---\ntitle: Tensors\nprereqs: [never-written]\ndifficulty: 2\n---\narrays with axes'));
+    expect(nextLessons({}, orphanGoal, index, NOW, 'tensors', 3)).toEqual([]);
+  });
+
+  it('withholds the goal when the page lists itself as its own prereq', () => {
+    const selfLoop = new Map(pages);
+    selfLoop.set('loop', parsePage('loop', '',
+      '---\ntitle: Loop\nprereqs: [loop]\ndifficulty: 2\n---\nit cites itself'));
+    expect(nextLessons({}, selfLoop, index, NOW, 'loop', 3)).toEqual([]);
+  });
+
+  it('nextLessons does not re-offer a goal the learner already knows', () => {
+    const state: StudentState = {
+      derivatives: mastery('mastered', '2026-07-01'),
+      'chain-rule': mastery('mastered', '2026-07-01'),
+      backprop: mastery('practicing', '2026-07-08'),
+    };
+    expect(nextLessons(state, pages, index, NOW, 'backprop', 3)).toEqual([]);
   });
 
   it('analogies rank known pages by similarity to the target', () => {

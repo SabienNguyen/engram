@@ -238,7 +238,16 @@ export function registerGraphTools(server: McpServer, ctx: Ctx): void {
       } else {
         const list = type === 'prereq' ? srcPage.meta.prereqs : srcPage.meta.deepens;
         if (!list.includes(dst)) list.push(dst);
-        ctx.store.writePage(src, srcPage.meta, srcPage.body, srcPage.domain);
+        const written = ctx.store.writePage(src, srcPage.meta, srcPage.body, srcPage.domain);
+        // writePage declines the METADATA edit on a page whose frontmatter it cannot parse — it
+        // keeps the learner's bytes rather than erasing them. The edge therefore did not land, so
+        // saying "linked" here, and writing a provenance line for it, would be a record that lies.
+        const unreadable = written.warnings.find((w) => w.startsWith('frontmatter parse error'));
+        if (unreadable) {
+          return err(`"${src}" has frontmatter this server cannot parse, so the ${type} edge was `
+            + `not written and nothing was recorded: ${unreadable}. Fix the YAML in that page, `
+            + 'then link again.');
+        }
       }
       const today = new Date().toISOString().slice(0, 10);
       ctx.store.appendReviewLog(`- ${today} [${type}] ${src} -> ${dst} — ${rationale}`);
@@ -275,7 +284,14 @@ export function registerGraphTools(server: McpServer, ctx: Ctx): void {
           list.splice(list.indexOf(dst, i), 1);
         }
       }
-      ctx.store.writePage(src, page.meta, page.body, page.domain);
+      const written = ctx.store.writePage(src, page.meta, page.body, page.domain);
+      // Same as link_pages: an unparseable frontmatter means the metadata edit was declined, so
+      // the edge is still there and "unlinked: true" would be false.
+      const unreadable = written.warnings.find((w) => w.startsWith('frontmatter parse error'));
+      if (unreadable) {
+        return err(`"${src}" has frontmatter this server cannot parse, so the edge was not `
+          + `removed: ${unreadable}. Fix the YAML in that page, then unlink again.`);
+      }
       return json({ unlinked: true });
     })
   );

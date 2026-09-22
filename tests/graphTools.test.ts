@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readdirSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readdirSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -143,6 +143,22 @@ describe('graph tools', () => {
     const page = await call('read_page', { slug: 'chain-rule' });
     const out = page.data.edges.out;
     expect(out).toContainEqual(expect.objectContaining({ dst: 'derivatives', type: 'prereq', rationale: 'composition needs basic derivatives' }));
+  });
+
+  // writePage keeps a page's unparseable frontmatter verbatim rather than erasing it, which means
+  // the metadata edit silently did not happen. Reporting "linked" and writing a provenance line
+  // for an edge that is not on disk is a record that lies — worse than the refusal.
+  it('refuses the link, and records nothing, when the source frontmatter will not parse', async () => {
+    writeFileSync(join(root, 'pages', 'chain-rule.md'),
+      '---\ntitle: Chain Rule\nbad:\t- tabbed\n---\nderivative of composed functions');
+    const res = await call('link_pages', {
+      src: 'chain-rule', dst: 'derivatives', type: 'prereq', rationale: 'should not be recorded',
+    });
+    expect(res.isError).toBe(true);
+    expect(res.text).toMatch(/frontmatter/i);
+    // The provenance log is the part that would outlive the mistake.
+    const log = join(root, 'review-log.md');
+    expect(existsSync(log) && readFileSync(log, 'utf8').includes('should not be recorded')).toBe(false);
   });
 
   it('unlink_pages removes frontmatter edges but refuses related', async () => {
