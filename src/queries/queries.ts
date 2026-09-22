@@ -73,9 +73,12 @@ export function frontier(
     if (seededPractice(p)) return false;
     const eff = effectiveLevel(state[p.slug], now);
     if (eff !== 'unseen' && eff !== 'exposed') return false;
-    return p.meta.prereqs.every(
-      (pre) => !pages.has(pre) || isKnown(effectiveLevel(state[pre], now))
-    );
+    // A prereq naming no page used to count as SATISFIED, so a page whose prerequisites were never
+    // written — mid-compile, or after the learner deleted the prereq page in Obsidian — was
+    // offered as ready to learn. Fixed here rather than by auto-stubbing the target in write_page
+    // the way link_pages does: a deletion in the vault runs no write_page at all, so the stub
+    // would never be created and this exact page would keep being offered.
+    return p.meta.prereqs.every((pre) => isKnown(effectiveLevel(state[pre], now)));
   });
   const known = knownSlugs(state, pages, now);
   if (index && known.length) {
@@ -116,12 +119,35 @@ export function nextLessons(
   state: StudentState, pages: Map<string, Page>, index: EmbeddingIndex | null,
   now: Date, goal?: string, k = 3
 ): LessonSuggestion[] {
+  const gaps = goal ? unmetPrereqs(goal, pages, state, now) : [];
   const combined = [
     ...reviewDue(state, pages, now).slice(0, 2),
-    ...(goal ? unmetPrereqs(goal, pages, state, now) : frontier(state, pages, index, now, k)),
+    ...(goal ? gaps : frontier(state, pages, index, now, k)),
   ];
   const seen = new Set<string>();
-  return combined.filter((s) => !seen.has(s.slug) && seen.add(s.slug)).slice(0, k);
+  const out = combined.filter((s) => !seen.has(s.slug) && seen.add(s.slug));
+  // Goal mode returned the prereq gaps and nothing else, so the moment the last prereq was met the
+  // tutor's answer to "what next" went empty — at exactly the point the goal itself was the
+  // answer.
+  //
+  // An empty `gaps` is NOT the same as "the prereqs are met", which is what the detail below
+  // claims. unmetPrereqs only lists a prereq that `pages.has`, so a prereq naming no page, or a
+  // page listing itself, can never appear in gaps — and those are precisely the broken vaults
+  // frontier's dangling-prereq check and prereqCycles exist to catch. Without the one-hop check
+  // here, a self-listing page answered "prereqs met — the goal itself is next", turning a silent
+  // empty answer into a confident false one. Every transitive prereq that EXISTS is already known
+  // when gaps is empty, so checking the goal's own list is enough to close it.
+  const goalPrereqsKnown = (g: string) =>
+    (pages.get(g)?.meta.prereqs ?? []).every((pre) => isKnown(effectiveLevel(state[pre], now)));
+  if (goal && !gaps.length && out.length < k && !seen.has(goal)
+      && pages.has(goal) && !isKnown(effectiveLevel(state[goal], now))
+      && goalPrereqsKnown(goal)) {
+    out.push({
+      slug: goal, title: title(pages, goal), reason: 'frontier',
+      detail: 'prereqs met — the goal itself is next',
+    });
+  }
+  return out.slice(0, k);
 }
 
 /** The recently-exercised region of the vault: the ceil(k/2) evidenced pages with the freshest

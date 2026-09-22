@@ -205,6 +205,44 @@ describe('FSRS per-item stability', () => {
     const now = d('2026-06-01'); // 61 days after 2026-04-01
     expect(daysOverdue(fragile, now)).toBeGreaterThan(daysOverdue(drilled, now));
   });
+
+  // Day N counting from 2026-01-01, so the arithmetic below reads as plain day numbers.
+  const on = (n: number) => new Date(Date.UTC(2026, 0, 1) + n * 86_400_000);
+
+  it('earning mastered never pulls the next review forward — the rung is a floor, not a penalty', () => {
+    // Six explanations ten days apart: spaced against the 21-day practicing base (minGap 8.4), so the
+    // page rides the 4x ceiling, 84 days out from its day-50 confirmation — due day 134. The applied
+    // pass on day 60 earns 'mastered', whose 45-day base makes a ten-day gap cramming (minGap 18);
+    // re-judging the log there collapsed the streak to 1 and moved the review in to day 105.
+    let s: StudentState = {};
+    for (const n of [0, 10, 20, 30, 40, 50]) s = applyEvidence(s, 'p', 'explained-correctly', '', on(n));
+    expect(s.p.level).toBe('practicing');
+    const dueBefore = 50 + decayDaysLeft(s.p, on(50))!;
+    expect(dueBefore).toBe(134);
+
+    s = applyEvidence(s, 'p', 'applied-correctly', '', on(60));
+    expect(s.p.level).toBe('mastered');
+    const dueAfter = 60 + decayDaysLeft(s.p, on(60))!;
+    expect(dueAfter).toBeGreaterThanOrEqual(dueBefore);
+    expect(dueAfter).toBe(144); // 60 + 21x4: the mastered base cannot undercut what practicing earned
+  });
+
+  it('upgrading the evidence under a rubric-held page keeps its runway too', () => {
+    // The same trap one rung lower: six rubric passes six days apart are spaced against the 14-day
+    // rubric base (minGap 5.6) and ride the 4x ceiling to day 86. The explanation on day 36 raises
+    // nothing but moves the page onto the ordinary 21-day base, where six days is cramming — which
+    // pulled the review in to day 57 for producing BETTER evidence.
+    let s: StudentState = {};
+    for (const n of [0, 6, 12, 18, 24, 30]) s = applyEvidence(s, 'p', 'rubric-passed', '', on(n));
+    expect(s.p.level).toBe('practicing');
+    const dueBefore = 30 + decayDaysLeft(s.p, on(30))!;
+    expect(dueBefore).toBe(86);
+
+    s = applyEvidence(s, 'p', 'explained-correctly', '', on(36));
+    const dueAfter = 36 + decayDaysLeft(s.p, on(36))!;
+    expect(dueAfter).toBeGreaterThanOrEqual(dueBefore);
+    expect(dueAfter).toBe(92); // 36 + 14x4: exactly the runway a seventh rubric pass would have given
+  });
 });
 
 describe('isKnown', () => {

@@ -48,18 +48,16 @@ function baseWindow(m: PageMastery): number | null {
   return null;
 }
 
-/** FSRS-style memory strength as a multiplier on the base window. Walks the evidence oldest→newest
+/** FSRS-style memory strength as a multiplier on `base`. Walks the evidence oldest→newest
  *  counting SPACED successful reinforcements: a success (applied/explained/rubric) grows the streak
- *  only when it landed at least `minSpacingFraction` of the base window after the previous
+ *  only when it landed at least `minSpacingFraction` of `base` after the previous
  *  reinforcement — recalling after a real gap is what consolidates memory, so same-day cramming is
  *  logged but earns no extra window. A lapse (a 'struggled' demotion or a fresh 'misconception')
  *  resets the streak to zero: stability the learner has stopped demonstrating is not kept on the
  *  books. A bare 'exposed' encounter is neutral — neither a success nor a lapse nor an anchor.
  *  Returns 1 (base window) for a page with zero or one spaced success; grows by `growth` per spaced
  *  success beyond the first, capped at `maxFactor`. */
-function stabilityFactor(m: PageMastery): number {
-  const base = baseWindow(m);
-  if (base === null) return 1;
+function stabilityFactor(m: PageMastery, base: number): number {
   const minGap = STABILITY.minSpacingFraction * base;
   let streak = 0;
   let lastAnchorMs: number | null = null; // last reinforcement we measure spacing from
@@ -79,12 +77,37 @@ function stabilityFactor(m: PageMastery): number {
   return Math.min(STABILITY.growth ** Math.max(0, streak - 1), STABILITY.maxFactor);
 }
 
+/** Every base window a standing can rest on, i.e. every non-null value `baseWindow` returns.
+ *  stabilityWindow ratchets across these; baseWindow stays the only thing that picks one.
+ *
+ *  Derived from DECAY rather than hand-listed: a new key left out of a hand-written list empties
+ *  stabilityWindow's filter, Math.max() of nothing is -Infinity, and every page silently reports
+ *  no window left and decays a rung on every read. A wrong number here is not a wrong number, it
+ *  is the whole vault quietly rotting. */
+const BASE_WINDOWS = Object.values(DECAY).filter((d): d is number => typeof d === 'number');
+
 /** This page's ACTUAL decay window: its base window stretched by per-item stability. The one helper
  *  effectiveLevel/decayDaysLeft/daysOverdue all read, so a well-reinforced page and a barely-reached
- *  one are treated consistently everywhere. null when there is no standing to decay. */
+ *  one are treated consistently everywhere. null when there is no standing to decay.
+ *
+ *  Monotone in the base window on purpose: we take the best window any base up to this page's own
+ *  earns, not only its own. stabilityFactor re-judges the WHOLE history against
+ *  `minSpacingFraction * base`, so WIDENING the base retroactively reclassifies past gaps as
+ *  cramming. Six explanations ten days apart hold a practicing page at the 4x ceiling, due on day
+ *  134; the applied pass on day 60 that earns 'mastered' re-based the same log against an 18-day
+ *  gap, collapsed the streak from 7 to 1 and pulled the next review in to day 105 — the reward for
+ *  reaching the top of the scale was being asked to review it 29 days sooner. Same wipe one rung
+ *  lower, where an explanation moves a rubric-held page off the 14-day base onto the 21-day one
+ *  (day 86 -> day 57). A narrower base's window is a floor, never a ceiling: WIDENING the base can
+ *  only lengthen the result.
+ *
+ *  Not a claim that standing never decays faster — `rubric-passed` deliberately narrows the base
+ *  from 21 to 14 (see applyEvidence), and that still pulls the next review in. What this fixes is
+ *  the case where the base got WIDER and the window shrank anyway. */
 function stabilityWindow(m: PageMastery): number | null {
   const base = baseWindow(m);
-  return base === null ? null : base * stabilityFactor(m);
+  if (base === null) return null;
+  return Math.max(...BASE_WINDOWS.filter((b) => b <= base).map((b) => b * stabilityFactor(m, b)));
 }
 
 export function effectiveLevel(m: PageMastery | undefined, now: Date): MasteryLevel {

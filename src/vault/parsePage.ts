@@ -2,6 +2,14 @@ import matter from 'gray-matter';
 import type { Page, PageMeta, PageStatus } from '../types.js';
 
 const WIKI_LINK = /\[\[([^\]|#]+)(?:[|#][^\]]*)?\]\]/g;
+
+// gray-matter caches the file object keyed by the whole input string, and it writes that entry
+// BEFORE parsing — so a page whose YAML throws leaves a half-built object in the cache, and the
+// next matter() call on the same bytes returns it as a clean parse: no error, empty data, and the
+// frontmatter still sitting in `content`. A second loadPages() of a broken page therefore dropped
+// its warning and served the delimiters as body text. Any non-undefined options value skips the
+// cache entirely (see gray-matter/index.js), which is the only way off it.
+const NO_CACHE = {};
 const STATUSES: PageStatus[] = ['stub', 'draft', 'solid'];
 
 export function slugify(name: string): string {
@@ -44,18 +52,38 @@ function extraFields(data: Record<string, unknown>): Record<string, unknown> | u
   return Object.keys(extra).length > 0 ? extra : undefined;
 }
 
-// Best-effort strip of a frontmatter block when the YAML itself failed to
-// parse. We only look for the literal `---` delimiters; if there's no
-// closing delimiter we can't tell where the body starts, so return raw as-is.
-function stripFrontmatterBestEffort(raw: string): string {
-  if (!raw.startsWith('---\n') && !raw.startsWith('---\r\n')) return raw;
-  const lines = raw.split(/\r\n|\n/);
-  for (let i = 1; i < lines.length; i++) {
-    if (lines[i] === '---') {
-      return lines.slice(i + 1).join('\n');
-    }
+// Best-effort split of a frontmatter block when the YAML itself failed to parse — gray-matter
+// can't tell us where the block ended, so we look for the literal `---` delimiters. Slices rather
+// than splits on lines so the block's text comes back byte-for-byte (writePage writes it back).
+// undefined when there's no opening delimiter, or no closing one: without a closing `---` we can't
+// tell where the body starts.
+function splitFrontmatterBestEffort(raw: string): { frontmatter: string; body: string } | undefined {
+  const open = /^---\r?\n/.exec(raw);
+  if (!open) return undefined;
+  const rest = raw.slice(open[0].length);
+  const close = /(?:^|\r?\n)---(?:\r?\n|$)/.exec(rest);
+  if (!close) return undefined;
+  return {
+    frontmatter: rest.slice(0, close.index),
+    body: rest.slice(close.index + close[0].length),
+  };
+}
+
+/** The verbatim text of a frontmatter block that is PRESENT but does not parse as YAML (delimiters
+ *  excluded); undefined when there is no block or the block parses fine. A page whose YAML fails
+ *  reads back with EMPTY meta — parsePage degrades rather than throwing, so one hand-edited page
+ *  can't break every read of the vault — and serializing that empty meta erased the learner's
+ *  frontmatter on the next write. vaultStore.writePage writes this back instead. Only the yes/no
+ *  matters here; the parser's message is already on the page's `warnings`. */
+export function unparsedFrontmatter(raw: string): string | undefined {
+  const split = splitFrontmatterBestEffort(raw);
+  if (!split) return undefined;
+  try {
+    matter(raw, NO_CACHE);
+    return undefined;
+  } catch {
+    return split.frontmatter;
   }
-  return raw;
 }
 
 // sources are file paths, not slugs — do not slugify them. Same for authors: a person's name is
@@ -82,12 +110,12 @@ export function parsePage(slug: string, domain: string, raw: string): Page {
   let data: Record<string, unknown> = {};
   let body = raw;
   try {
-    const parsed = matter(raw);
+    const parsed = matter(raw, NO_CACHE);
     data = (parsed.data as Record<string, unknown>) ?? {};
     body = parsed.content;
   } catch (e) {
     warnings.push(`frontmatter parse error: ${(e as Error).message}`);
-    body = stripFrontmatterBestEffort(raw);
+    body = splitFrontmatterBestEffort(raw)?.body ?? raw;
   }
 
   const difficulty =

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parsePage, serializePage, slugify } from '../src/vault/parsePage.js';
+import { parsePage, serializePage, slugify, unparsedFrontmatter } from '../src/vault/parsePage.js';
 
 const GOOD = `---
 title: Backpropagation
@@ -175,5 +175,36 @@ describe('parsePage — unknown frontmatter keys', () => {
     };
     const serialized = serializePage(meta, 'body');
     expect(parsePage('x', '', serialized).meta.extra).toBeUndefined();
+  });
+});
+
+describe('unparsedFrontmatter', () => {
+  it('returns the broken block verbatim so a write can put it back', () => {
+    // vaultStore.writePage writes this text back byte-for-byte instead of serializing the empty
+    // meta parsePage fell back to. If it came back normalised, the learner's hand-edit would still
+    // be rewritten — just less visibly.
+    const raw = '---\ntitle: Chain Rule\nprereqs: [a, b]\nbad:\t- tabbed\n---\nbody here\n';
+    const fm = unparsedFrontmatter(raw);
+    expect(fm).toBe('title: Chain Rule\nprereqs: [a, b]\nbad:\t- tabbed');
+    expect(`---\n${fm}\n---\nbody here\n`).toBe(raw); // reassembles the original exactly
+  });
+
+  it('is undefined when the frontmatter parses, or when there is none', () => {
+    // Only a block we could NOT read is worth preserving verbatim; anything else goes back through
+    // serializePage so engram-managed edits actually land.
+    expect(unparsedFrontmatter(GOOD)).toBeUndefined();
+    expect(unparsedFrontmatter('no frontmatter at all')).toBeUndefined();
+  });
+
+  it('is undefined with no closing delimiter — we cannot tell where the body starts', () => {
+    expect(unparsedFrontmatter('---\nprereqs: [unterminated\nstill no close')).toBeUndefined();
+  });
+
+  it('splits at the FIRST closing delimiter, so a horizontal rule in the body stays in the body', () => {
+    // Markdown bodies legitimately contain `---`. Scanning to the last one would hand writePage a
+    // "frontmatter" block containing the learner's prose and then write it back inside delimiters.
+    const raw = '---\nprereqs: [unterminated\n---\nintro\n\n---\n\noutro\n';
+    expect(unparsedFrontmatter(raw)).toBe('prereqs: [unterminated');
+    expect(parsePage('r', '', raw).body).toBe('intro\n\n---\n\noutro\n');
   });
 });
